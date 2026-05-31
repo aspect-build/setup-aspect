@@ -1,0 +1,59 @@
+# Apply at most one `YYYY.VV` (year.ISO-week) tag per week to HEAD, pointing at
+# a known-good commit. Runs both on a Monday cron and on every push to main:
+#   - The cron tags the week's first commit if the Monday run was the trigger.
+#   - The push trigger backfills a week whose cron run was skipped (e.g. the
+#     first commit of the week lands after Monday), so the tag is never missed.
+# A run is a no-op if the week's tag already exists (we never move it) or if
+# main hasn't advanced since the last YYYY.VV tag — so quiet weeks produce no
+# tag and we don't stack near-identical tags on this rarely-changing repo.
+#
+# Tags exist for discoverability (a dated pointer on the tags page), NOT as the
+# recommended thing to pin to: we publish tags only — no GitHub Releases, no
+# Marketplace listing — because consumers should pin to a commit SHA, not a
+# (mutable) tag. See CONTRIBUTING.md and the README's pinning guidance.
+#
+# The `YYYY.VV` scheme matches aspect-build/aspect-cli's own weekly tag.
+name: Weekly Tag
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Mondays at 5am UTC / midnight EST
+    - cron: '0 5 * * 1'
+  workflow_dispatch:
+jobs:
+  tagger:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the tag ref
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # need full tag history to find the last YYYY.VV tag
+      - name: Tag HEAD with YYYY.VV if main advanced
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # %G (ISO week-year) not %Y, so the year doesn't roll over before the
+          # week does — e.g. Dec 29 2025 is week 1 of 2026, so this gives
+          # 2026.01 where %Y.%-V would wrongly give 2025.01.
+          tag="$(date +%G.%-V)"
+
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            echo "Tag ${tag} already exists — nothing to do."
+            exit 0
+          fi
+
+          # Skip if HEAD is already tagged YYYY.VV (no new commits since the
+          # last weekly tag). `git describe` finds the most recent such tag.
+          last="$(git describe --tags --abbrev=0 --match '[0-9]*.[0-9]*' 2>/dev/null || true)"
+          if [ -n "${last}" ] && [ "$(git rev-list -n1 "${last}")" = "${GITHUB_SHA}" ]; then
+            echo "No new commits since ${last} — skipping tag."
+            exit 0
+          fi
+
+          echo "Creating tag ${tag} at ${GITHUB_SHA}"
+          gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/tags/${tag}" \
+            -f sha="${GITHUB_SHA}"

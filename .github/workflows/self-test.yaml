@@ -1,0 +1,130 @@
+name: self-test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  default-install:
+    name: install latest launcher
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./
+      - name: assert aspect on PATH
+        run: |
+          set -euo pipefail
+          which aspect
+          aspect --version
+
+  pinned-launcher:
+    name: install pinned launcher
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./
+        with:
+          launcher-version: 2026.22.39
+      - name: assert version matches pin
+        run: |
+          set -euo pipefail
+          got="$(aspect --version | awk '{print $NF}')"
+          want="2026.22.39"
+          if [ "$got" != "$want" ]; then
+            echo "::error::expected aspect --version to report $want, got $got"
+            exit 1
+          fi
+
+  bazelisk:
+    name: install Bazelisk
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./
+        with:
+          bazelisk-version: 1.x
+      - name: assert bazel on PATH
+        run: |
+          set -euo pipefail
+          which bazel
+          bazel --version
+
+  caches:
+    name: ephemeral caches restore + save
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./
+        with:
+          bazelisk-version: 1.x
+          bazelisk-cache: 'true'
+          disk-cache: ${{ github.workflow }}
+          repository-cache: 'true'
+      - name: assert ~/.bazelrc contains cache directives
+        run: |
+          set -euo pipefail
+          grep -q 'disk_cache=' "$HOME/.bazelrc" \
+            || { echo "::error::~/.bazelrc missing --disk_cache directive"; cat "$HOME/.bazelrc"; exit 1; }
+          grep -q 'repository_cache=' "$HOME/.bazelrc" \
+            || { echo "::error::~/.bazelrc missing --repository_cache directive"; cat "$HOME/.bazelrc"; exit 1; }
+
+  bazelrc-idempotent:
+    name: bazelrc append is idempotent
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./
+        with:
+          disk-cache: idem-test
+          repository-cache: 'true'
+      - uses: ./
+        with:
+          disk-cache: idem-test
+          repository-cache: 'true'
+      - name: assert each directive appears exactly once
+        run: |
+          set -euo pipefail
+          disk=$(grep -c 'disk_cache=' "$HOME/.bazelrc" || true)
+          repo=$(grep -c 'repository_cache=' "$HOME/.bazelrc" || true)
+          if [ "$disk" != "1" ]; then
+            echo "::error::expected 1 disk_cache directive, found $disk"; cat "$HOME/.bazelrc"; exit 1
+          fi
+          if [ "$repo" != "1" ]; then
+            echo "::error::expected 1 repository_cache directive, found $repo"; cat "$HOME/.bazelrc"; exit 1
+          fi
+
+  coexistence:
+    name: coexistence with setup-bazel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: bazel-contrib/setup-bazel@0.19.0
+        with:
+          bazelisk-cache: true
+      - uses: ./
+        with:
+          disk-cache: coexistence
+      - name: assert both succeeded and bazelrc has setup-aspect block
+        run: |
+          set -euo pipefail
+          which bazel
+          which aspect
+          grep -q 'Added by aspect-build/setup-aspect' "$HOME/.bazelrc" \
+            || { echo "::error::setup-aspect marker missing from ~/.bazelrc"; cat "$HOME/.bazelrc"; exit 1; }
+
+  id-token-warning:
+    # No `permissions:` block at job level → ACTIONS_ID_TOKEN_REQUEST_URL unset
+    # → setup-aspect should emit a warning.
+    name: id-token warning when permission missing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./
+      - name: action still succeeded
+        run: aspect --version

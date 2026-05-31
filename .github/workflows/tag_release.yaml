@@ -1,0 +1,52 @@
+# Tag a release and publish its GitHub Release notes — run manually from the
+# Actions tab when you want to cut a release (e.g. after landing a fix users are
+# waiting for). This is the deliberate, human-triggered counterpart to the
+# automatic weekly_tag.yaml; doing it in CI avoids error-prone local git state.
+#
+# The release tag is `vYYYY.VV.N` — this week's weekly tag (bare `YYYY.VV`) plus
+# the commits since it (see release_version.sh), with a leading `v` to match the
+# Aspect CLI's release tags (e.g. v2026.22.39). Weekly tags stay bare so the
+# describe-match in release_version.sh keeps working; only release tags get the
+# `v`. This composes with the weekly tags without collisions. The release notes
+# lead with a copy-paste `uses:` snippet
+# pinned to the released SHA (release_notes.sh), with GitHub's auto-generated
+# changelog appended. We publish a Release here for richer notes, but the README
+# still steers consumers to pin to the SHA rather than the tag.
+name: Tag a Release
+on:
+  workflow_dispatch:
+permissions:
+  contents: write # create the tag and the release
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # need full tag history to derive YYYY.VV.N
+      - id: version
+        name: Compute release version
+        run: |
+          set -euo pipefail
+          chmod +x .github/workflows/*.sh
+          # release_version.sh emits the bare `YYYY.VV.N`; release tags add `v`.
+          tag="v$(.github/workflows/release_version.sh)"
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            echo "::error::Tag ${tag} already exists (nothing new to release since the last release at this commit)."
+            exit 1
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "Releasing ${tag} at ${GITHUB_SHA}"
+      - name: Write release notes
+        env:
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: .github/workflows/release_notes.sh > release_notes.md
+      - name: Create tag and GitHub release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          body_path: release_notes.md
+          generate_release_notes: true # append the auto changelog below our body

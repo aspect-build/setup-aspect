@@ -1,0 +1,132 @@
+name: 'Setup Aspect CLI'
+description: 'Install the Aspect CLI launcher and configure Bazel for GitHub Actions.'
+author: 'Aspect Build'
+
+branding:
+  icon: 'triangle'
+  color: 'gray-dark'
+
+inputs:
+  launcher-version:
+    description: |
+      Aspect CLI launcher version to install (e.g. `2026.22.39`). Omit
+      to install the latest released launcher.
+
+      The CLI version itself is pinned by `.aspect/version.axl` in
+      your repo — the launcher reads that file and downloads the
+      matching CLI on first `aspect` invocation, so local and CI stay
+      in sync without a launcher-version bump.
+
+      Ignored when running on an Aspect Workflows runner (the
+      runner image already has `aspect` on PATH) or when
+      `launcher-install` is `false`.
+    required: false
+    default: ''
+
+  launcher-install:
+    description: |
+      Whether to install the Aspect CLI launcher. Default `true`.
+
+      Set to `false` if you're providing the `aspect` binary
+      yourself (e.g. via a `curl install.aspect.build | bash` step
+      earlier in the job, or by building it from source). In that
+      mode setup-aspect skips the launcher install entirely; you
+      are responsible for putting `aspect` on PATH before any
+      later step that needs to invoke it.
+
+      When combined with `aspect-api-token`, the auth step still
+      runs and will fail unless an `aspect` binary is already on
+      PATH at the time setup-aspect runs. If `aspect` won't be on
+      PATH until later, leave `aspect-api-token` empty too and run
+      `aspect auth login` from a later step.
+
+      No-op on Aspect Workflows runners (the runner image already
+      provides `aspect`, so the launcher install is skipped
+      regardless).
+    required: false
+    default: 'true'
+
+  aspect-api-token:
+    description: |
+      Long-lived `<CLIENT_ID>:<SECRET>` Aspect API token, typically
+      passed via the GitHub Actions secrets context as
+      `secrets.ASPECT_API_TOKEN`. When set, setup-aspect pipes it
+      into `aspect auth login --with-api-token`; the resulting
+      short-lived JWT is persisted locally so downstream
+      `aspect <task>` calls pick it up automatically via
+      `ctx.aspect.auth.credentials()`.
+
+      The long-lived token is **not** exported to `GITHUB_ENV` for
+      subsequent steps — only the JWT (on disk) is visible to
+      downstream actions.
+
+      Setting this input runs `aspect auth login` as part of the
+      setup-aspect step. Leave empty to skip the auth step (for
+      example if you want to authenticate later in the job, or your
+      workflow doesn't need Aspect API access).
+    required: false
+    default: ''
+
+  bazelisk-version:
+    description: |
+      Bazelisk version to install (semver range or exact, e.g.
+      `1.x` or `1.21.0`). Defaults to `latest` — the most recent
+      non-prerelease published to bazelbuild/bazelisk.
+
+      The install is skipped (regardless of this input) when `bazel`
+      is already on PATH (for example because setup-bazel ran first
+      or you're on an Aspect Workflows runner image, which ships its
+      own Bazelisk).
+    required: false
+    default: 'latest'
+
+  bazelisk-cache:
+    description: |
+      Cache the Bazelisk binary across runs (keyed on
+      `.bazelversion`). On by default — set to `false` to disable.
+
+      Ignored on Aspect Workflows runners.
+    required: false
+    default: 'true'
+
+  disk-cache:
+    description: |
+      Cache `--disk_cache` outputs across runs. On by default. Set to
+      a string to segregate the cache by that key — a typical pattern
+      is to key on the GitHub Actions workflow context's
+      `github.workflow` value so each workflow gets its own cache.
+      Set to `false` to disable the disk cache entirely.
+
+      Ignored on Aspect Workflows runners — they route Bazel through
+      a remote cache, making per-job disk caching unnecessary.
+    required: false
+    default: 'true'
+
+  repository-cache:
+    description: |
+      Enable Bazel `--repository_cache` (external-repo download
+      bytes). On by default. Set to a string to segregate the cache
+      by that key — a typical pattern is to key on the GitHub Actions
+      workflow context's `github.workflow` value so each workflow gets
+      its own cache. Set to `false` to disable entirely.
+
+      Ignored on Aspect Workflows runners.
+    required: false
+    default: 'true'
+
+  bazelrc:
+    description: |
+      Extra lines appended to `~/.bazelrc`. Multiline YAML strings
+      are supported. setup-aspect appends only lines not already
+      present, so re-runs are idempotent.
+
+      Ignored on Aspect Workflows runners (the runner provides
+      its own Bazel configuration).
+    required: false
+    default: ''
+
+runs:
+  using: 'node24'
+  main: 'dist/main/index.js'
+  post: 'dist/post/index.js'
+  post-if: '!cancelled()'
