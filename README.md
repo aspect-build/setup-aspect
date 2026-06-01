@@ -61,7 +61,7 @@ The runner image already provides `aspect` and `bazel`, and `aspect <task>` invo
 
 1. **Configures raw `bazel` to use the runner's caching infrastructure** — the same remote cache, BES backend, and NVMe disk cache that `aspect <task>` already uses.
 2. **Authenticates** to the Aspect API (same as ephemeral mode).
-3. Skips launcher install, Bazelisk install, GHA cache wiring, and `~/.bazelrc` append — the runner provides them.
+3. Skips launcher install, Bazelisk install, GHA cache wiring, and `~/.bazelrc` append — not needed on Workflows runners (`aspect`/`bazel` are already available and Bazel is routed through the runner's own caching).
 
 Detection is based on the `ASPECT_WORKFLOWS_RUNNER` env var.
 

@@ -59,15 +59,16 @@ async function setupAspect () {
  * setup-aspect does in this mode is extend the same wiring to *raw*
  * `bazel <verb>` calls outside of `aspect <task>`, by generating the
  * Workflows-tuned bazelrc via the runner-provided `rosetta` binary and
- * writing it to `/etc/bazel.bazelrc` (the first rc Bazel loads). Installs
- * and GHA cache wiring are skipped because the runner image already
- * provides them.
+ * writing it to `/etc/bazel.bazelrc` (the first rc Bazel loads). The
+ * installs and GHA caching are skipped because they aren't needed here:
+ * the runner already has `aspect`/`bazel` available and routes Bazel
+ * through its own caching infrastructure.
  */
 async function setupOnWorkflowsRunner () {
   core.info('Detected Aspect Workflows runner (ASPECT_WORKFLOWS_RUNNER set)')
   core.info(
     'Skipping launcher install, Bazelisk install, GHA cache wiring, and ' +
-    '~/.bazelrc append — the runner image provides them all.'
+    '~/.bazelrc append — not needed on Workflows runners.'
   )
 
   logWorkflowsRunnerMetadata()
