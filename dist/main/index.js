@@ -98168,6 +98168,8 @@ async function setupOnWorkflowsRunner () {
     '~/.bazelrc append — the runner image provides them all.'
   )
 
+  logWorkflowsRunnerMetadata()
+
   // The runner sets ASPECT_WORKFLOWS_RUNNER_BAZELRC_GENERATE during the
   // transition window where a newer bazelrc-generation mechanism is
   // available alongside the legacy `rosetta` binary. Warn early —
@@ -98213,6 +98215,45 @@ async function setupOnWorkflowsRunner () {
     })
     external_fs_.writeFileSync(config.paths.systemBazelrc, rcContent)
     info(`Wrote Workflows-tuned bazelrc to ${config.paths.systemBazelrc}`)
+  } finally {
+    endGroup()
+  }
+}
+
+// Diagnostic dump of the runner's identity, mirroring the `aspect` CLI's own
+// "Workflows runner metadata" block. Surfaced so a failure in this step is
+// traceable to a specific runner instance. Each row prints only when its env
+// var is set — fields vary by cloud provider and runner version. `yesno`
+// renders the `1`/unset boolean flags as `yes`/`no`; ordering follows the CLI.
+const yesno = (v) => (v ? 'yes' : 'no')
+const WORKFLOWS_METADATA_ROWS = [
+  ['Workflows version', 'ASPECT_WORKFLOWS_RUNNER_VERSION'],
+  ['Cloud provider', 'ASPECT_WORKFLOWS_RUNNER_CLOUD_PROVIDER', (v) => v.toUpperCase()],
+  ['Region', 'ASPECT_WORKFLOWS_RUNNER_REGION'],
+  ['Availability zone', 'ASPECT_WORKFLOWS_RUNNER_AZ'],
+  ['Cloud account', 'ASPECT_WORKFLOWS_RUNNER_CLOUD_ACCOUNT'],
+  ['Instance type', 'ASPECT_WORKFLOWS_RUNNER_INSTANCE_TYPE'],
+  ['Instance name', 'ASPECT_WORKFLOWS_RUNNER_INSTANCE_NAME'],
+  ['Instance ID', 'ASPECT_WORKFLOWS_RUNNER_INSTANCE_ID'],
+  ['Image ID', 'ASPECT_WORKFLOWS_RUNNER_IMAGE_ID'],
+  ['Group name', 'ASPECT_WORKFLOWS_RUNNER_GROUP_NAME'],
+  ['Group queue', 'ASPECT_WORKFLOWS_RUNNER_GROUP_QUEUE'],
+  ['Resource type', 'ASPECT_WORKFLOWS_RUNNER_RESOURCE_TYPE'],
+  ['Aspect launcher version', 'ASPECT_WORKFLOWS_RUNNER_ASPECT_LAUNCHER_VERSION'],
+  ['CI agent version', 'ASPECT_WORKFLOWS_RUNNER_CI_AGENT_VERSION'],
+  ['NVMe storage', 'ASPECT_WORKFLOWS_RUNNER_HAS_NVME_STORAGE', yesno],
+  ['Preemptible', 'ASPECT_WORKFLOWS_RUNNER_PREEMPTIBLE', yesno],
+  ['Warming enabled', 'ASPECT_WORKFLOWS_RUNNER_WARMING_ENABLED', yesno],
+]
+
+function logWorkflowsRunnerMetadata () {
+  startGroup('Workflows runner metadata')
+  try {
+    for (const [label, envVar, format] of WORKFLOWS_METADATA_ROWS) {
+      const raw = process.env[envVar]
+      if (raw === undefined || raw === '') continue
+      info(`${label}: ${format ? format(raw) : raw}`)
+    }
   } finally {
     endGroup()
   }
