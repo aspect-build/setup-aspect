@@ -59,9 +59,10 @@ setup-aspect runs in one of two modes depending on the runner:
 
 The runner image already provides `aspect` and `bazel`, and `aspect <task>` invocations always wire themselves into the runner's caching infrastructure on their own. setup-aspect's job on these runners is to extend the same wiring to **raw `bazel` calls** outside of `aspect <task>` — many pipelines mix `aspect build` with a separate `bazel build` step, and without setup-aspect those bare `bazel` invocations would miss the deployment's remote cache, BES backend, and local NVMe disk cache.
 
-1. **Configures raw `bazel` to use the runner's caching infrastructure** — the same remote cache, BES backend, and NVMe disk cache that `aspect <task>` already uses.
-2. **Authenticates** to the Aspect API (same as ephemeral mode).
-3. Skips launcher install, Bazelisk install, GHA cache wiring, and `~/.bazelrc` append — not needed on Workflows runners (`aspect`/`bazel` are already available and Bazel is routed through the runner's own caching).
+1. **Waits for runner cache warming to complete** if it is still in progress — the same wait `aspect <task>` performs before running, extended to jobs that go on to run raw `bazel` so they don't race the warming bootstrap and miss the warmed caches.
+2. **Configures raw `bazel` to use the runner's caching infrastructure** — the same remote cache, BES backend, and NVMe disk cache that `aspect <task>` already uses.
+3. **Authenticates** to the Aspect API (same as ephemeral mode).
+4. Skips launcher install, Bazelisk install, GHA cache wiring, and `~/.bazelrc` append — not needed on Workflows runners (`aspect`/`bazel` are already available and Bazel is routed through the runner's own caching).
 
 Detection is based on the `ASPECT_WORKFLOWS_RUNNER` env var.
 
