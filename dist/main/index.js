@@ -98153,10 +98153,11 @@ async function setupAspect () {
 /**
  * On Aspect Workflows runners `aspect <task>` already routes through the
  * runner's caching infrastructure on its own — the launcher wires the
- * right flags regardless of any rc file. The only substantive thing
- * setup-aspect does in this mode is extend the same wiring to *raw*
- * `bazel <verb>` calls outside of `aspect <task>`, by generating the
- * Workflows-tuned bazelrc via the runner-provided `rosetta` binary and
+ * right flags regardless of any rc file. setup-aspect's job in this mode
+ * is to extend the same treatment to *raw* `bazel <verb>` calls outside
+ * of `aspect <task>`: wait for the runner's cache warming to complete
+ * (which `aspect <task>` does on its own before running), and generate
+ * the Workflows-tuned bazelrc via the runner-provided `rosetta` binary,
  * writing it to `/etc/bazel.bazelrc` (the first rc Bazel loads). The
  * installs and GHA caching are skipped because they aren't needed here:
  * the runner already has `aspect`/`bazel` available and routes Bazel
@@ -98170,6 +98171,8 @@ async function setupOnWorkflowsRunner () {
   )
 
   logWorkflowsRunnerMetadata()
+
+  await waitForWarming()
 
   // The runner sets ASPECT_WORKFLOWS_RUNNER_BAZELRC_GENERATE during the
   // transition window where a newer bazelrc-generation mechanism is
@@ -98257,6 +98260,57 @@ function logWorkflowsRunnerMetadata () {
     }
   } finally {
     endGroup()
+  }
+}
+
+/**
+ * Block until the runner's cache warming completes, mirroring the Aspect
+ * CLI's pre-task wait (aspect-cli `lib/health_check.axl::_wait_for_warming`).
+ * `aspect <task>` performs this wait itself, but raw `bazel` calls later in
+ * the job would otherwise race the still-running bootstrap warming —
+ * competing with it for CPU/disk and missing the warmed caches.
+ *
+ * Warming state is published by the runner agent: enabled when
+ * `ASPECT_WORKFLOWS_RUNNER_WARMING_ENABLED` is set, complete when the marker
+ * file named by `ASPECT_WORKFLOWS_RUNNER_WARMING_COMPLETE_MARKER_FILE`
+ * exists. The poll has no timeout by design: if warming hits a critical
+ * error the bootstrap terminates the runner (and this job with it), so the
+ * loop cannot hang indefinitely. Will be replaced by a dedicated Aspect CLI
+ * health-check command once one is available.
+ */
+async function waitForWarming () {
+  if (!process.env.ASPECT_WORKFLOWS_RUNNER_WARMING_ENABLED) return
+
+  const markerFile = process.env.ASPECT_WORKFLOWS_RUNNER_WARMING_COMPLETE_MARKER_FILE
+  if (!markerFile) {
+    warning(
+      'Warming is enabled on this runner but ' +
+      'ASPECT_WORKFLOWS_RUNNER_WARMING_COMPLETE_MARKER_FILE is not set — ' +
+      'unable to wait for warming to complete.'
+    )
+    return
+  }
+
+  if (!external_fs_.existsSync(markerFile)) {
+    startGroup('Wait for runner cache warming to complete')
+    try {
+      info('Warming is still in progress — waiting...')
+      const start = Date.now()
+      while (!external_fs_.existsSync(markerFile)) {
+        await (0,promises_namespaceObject.setTimeout)(1000)
+      }
+      info(`Warming completed after ${Math.round((Date.now() - start) / 1000)}s`)
+    } finally {
+      endGroup()
+    }
+  }
+
+  const cacheVersionFile = process.env.ASPECT_WORKFLOWS_RUNNER_WARMING_CACHE_VERSION_FILE
+  if (cacheVersionFile && external_fs_.existsSync(cacheVersionFile)) {
+    const cacheVersion = external_fs_.readFileSync(cacheVersionFile, 'utf8').trim()
+    if (cacheVersion) {
+      info(`Runner warmed from cache version: ${cacheVersion}`)
+    }
   }
 }
 
