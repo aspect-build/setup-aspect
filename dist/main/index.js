@@ -98162,6 +98162,10 @@ async function setupAspect () {
  * installs and GHA caching are skipped because they aren't needed here:
  * the runner already has `aspect`/`bazel` available and routes Bazel
  * through its own caching infrastructure.
+ *
+ * `rosetta bazelrc` requires a `.bazelversion` in the repo (it has no
+ * version fallback), so this step fails fast with an actionable message
+ * when one is missing — hence the requirement to run after `actions/checkout`.
  */
 async function setupOnWorkflowsRunner () {
   info('Detected Aspect Workflows runner (ASPECT_WORKFLOWS_RUNNER set)')
@@ -98199,6 +98203,23 @@ async function setupOnWorkflowsRunner () {
       'expected to call `rosetta bazelrc > /etc/bazel.bazelrc` to populate ' +
       'the Workflows-tuned Bazel rc. Upgrade aspect-build/setup-aspect to ' +
       'the latest release to pick up the replacement mechanism.'
+    )
+    return
+  }
+
+  // `rosetta bazelrc` resolves the Bazel version from the repo's
+  // `.bazelversion` with no fallback (no default, no env var, no Bazelisk
+  // resolution), so a missing file fails the whole action with an opaque
+  // `rosetta` exit code. Pre-flight the check here so the failure is an
+  // actionable message instead. setup-aspect runs after `actions/checkout`, so
+  // the repo — and `.bazelversion`, if committed — is at the workspace root.
+  if (!external_fs_.existsSync('.bazelversion')) {
+    setFailed(
+      'No `.bazelversion` file found in the repository root. `rosetta ' +
+      'bazelrc` resolves the Bazel version from `.bazelversion` and has no ' +
+      'fallback, so it cannot generate the Workflows-tuned Bazel rc. Commit a ' +
+      '`.bazelversion` to your repo (the same file Bazelisk reads). Make sure ' +
+      'setup-aspect runs after `actions/checkout`.'
     )
     return
   }
