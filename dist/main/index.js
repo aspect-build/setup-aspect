@@ -98157,14 +98157,43 @@ async function setupAspect () {
 const ASPECT_CI_BAZELRC_MIN_VERSION = 'v2026.26.38'
 const ASPECT_CLI_RELEASES_URL = 'https://github.com/aspect-build/aspect-cli/releases'
 
+// Bazel flags whose values are gRPC/HTTP headers — they carry credentials
+// (bearer tokens, API keys) and the runner's `x-identity`, so their values are
+// redacted before the rc is echoed to the log. Matches the Aspect CLI's own
+// header-redaction list.
+const HEADER_FLAG_NAMES = [
+  'remote_header',
+  'remote_cache_header',
+  'remote_exec_header',
+  'remote_downloader_header',
+  'bes_header',
+]
+const HEADER_FLAG_RE = new RegExp(
+  `(--(?:${HEADER_FLAG_NAMES.join('|')})=[^=\\s]+=).*$`,
+)
+
+/**
+ * Redact header-flag values in a rendered rc so the echoed copy doesn't leak
+ * credentials or the runner identity. `--remote_header=x-identity=<uuid>`
+ * becomes `--remote_header=x-identity=<REDACTED>`; the flag and header name
+ * stay visible so the rc is still legible.
+ */
+function redactBazelrc (text) {
+  return text
+    .split('\n')
+    .map((line) => line.replace(HEADER_FLAG_RE, '$1<REDACTED>'))
+    .join('\n')
+}
+
 /**
  * Echo a generated rc file to the log so users can see exactly what was written
- * and where it came from. Indented so it reads as a quoted block.
+ * and where it came from. Indented so it reads as a quoted block, with
+ * header-flag values redacted.
  */
 function printBazelrc (rcPath) {
   if (!external_fs_.existsSync(rcPath)) return
   info(`Generated ${rcPath}:`)
-  info(external_fs_.readFileSync(rcPath, 'utf8').replace(/^/gm, '  '))
+  info(redactBazelrc(external_fs_.readFileSync(rcPath, 'utf8')).replace(/^/gm, '  '))
 }
 
 /**
