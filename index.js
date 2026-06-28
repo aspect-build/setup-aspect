@@ -53,12 +53,20 @@ async function setupAspect () {
 // ─── Workflows-runner branch ─────────────────────────────────────────────────
 
 /**
- * Minimum Aspect CLI version that ships `aspect ci bazelrc`. Surfaced in the
- * warning shown when neither the new command nor the legacy `rosetta` can
- * configure raw `bazel` calls.
- * TODO: pin once `aspect ci bazelrc` is released.
+ * Where to point users when `aspect ci bazelrc` is unavailable — the Aspect CLI
+ * releases page, where a newer CLI that ships the `ci` command group lives.
  */
-const ASPECT_CI_BAZELRC_MIN_VERSION = 'vX.Y.Z'
+const ASPECT_CLI_RELEASES_URL = 'https://github.com/aspect-build/aspect-cli/releases'
+
+/**
+ * Echo a generated rc file to the log so users can see exactly what was written
+ * and where it came from. Indented so it reads as a quoted block.
+ */
+function printBazelrc (rcPath) {
+  if (!fs.existsSync(rcPath)) return
+  core.info(`Generated ${rcPath}:`)
+  core.info(fs.readFileSync(rcPath, 'utf8').replace(/^/gm, '  '))
+}
 
 /**
  * On Aspect Workflows runners `aspect <task>` already routes through the
@@ -104,10 +112,21 @@ async function setupOnWorkflowsRunner () {
  */
 async function aspectCiBazelrc () {
   if (!(await onPath('aspect'))) return false
-  core.startGroup('Generate ~/.bazelrc via `aspect ci bazelrc`')
+  const userBazelrc = path.join(os.homedir(), '.bazelrc')
+  core.startGroup(`Generate ${userBazelrc} via \`aspect ci bazelrc\``)
   try {
     const code = await exec.exec('aspect', ['ci', 'bazelrc'], { ignoreReturnCode: true })
-    return code === 0
+    if (code !== 0) {
+      core.warning(
+        `\`aspect ci bazelrc\` is unavailable in this Aspect CLI (exit ${code}). ` +
+        `Upgrade to the latest aspect-cli to pick up the \`ci\` command: ${ASPECT_CLI_RELEASES_URL}. ` +
+        'Falling back to `rosetta bazelrc`.'
+      )
+      return false
+    }
+    core.info(`Wrote Workflows-tuned bazelrc to ${userBazelrc}`)
+    printBazelrc(userBazelrc)
+    return true
   } catch {
     return false
   } finally {
@@ -125,7 +144,7 @@ async function aspectCiBazelrc () {
  * so a missing file is fatal; we pre-flight that for an actionable message.
  * setup-aspect runs after `actions/checkout`, so `.bazelversion` (if committed)
  * is at the workspace root. Returns true on success, false otherwise — a
- * failure degrades to the min-version warning rather than failing the action.
+ * failure degrades to the upgrade-hint warning rather than failing the action.
  */
 async function rosettaBazelrc () {
   if (!(await onPath('rosetta'))) return false
@@ -157,6 +176,7 @@ async function rosettaBazelrc () {
     }
     fs.writeFileSync(config.paths.systemBazelrc, rcContent)
     core.info(`Wrote Workflows-tuned bazelrc to ${config.paths.systemBazelrc}`)
+    printBazelrc(config.paths.systemBazelrc)
     return true
   } catch (err) {
     core.warning(`\`rosetta bazelrc\` failed: ${err.message || err}. ${config.paths.systemBazelrc} was left unchanged.`)
@@ -178,12 +198,11 @@ async function writeBazelrc () {
 
   markActionDeprecated(
     'Could not configure raw `bazel` calls on this Workflows runner: ' +
-    `\`aspect ci bazelrc\` is unavailable (Aspect CLI ${ASPECT_CI_BAZELRC_MIN_VERSION} ` +
-    'or newer is required) and the legacy `rosetta` fallback is not on PATH. ' +
-    'Warming completed and `aspect <task>` steps are unaffected, but raw ' +
-    '`bazel` calls will not pick up the runner\'s remote cache, repository ' +
-    'cache, or disk cache and so will not function correctly. Upgrade the ' +
-    `Aspect CLI on the runner image to ${ASPECT_CI_BAZELRC_MIN_VERSION}+.`
+    '`aspect ci bazelrc` is unavailable and the legacy `rosetta` fallback is ' +
+    'not on PATH. Warming completed and `aspect <task>` steps are unaffected, ' +
+    'but raw `bazel` calls will not pick up the runner\'s remote cache, ' +
+    'repository cache, or disk cache and so will not function correctly. ' +
+    `Upgrade to the latest aspect-cli to pick up the \`ci\` command: ${ASPECT_CLI_RELEASES_URL}.`
   )
 }
 
