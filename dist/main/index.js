@@ -98154,7 +98154,7 @@ async function setupAspect () {
  * Minimum Aspect CLI version that ships `aspect ci bazelrc`, and where to get it.
  * Shown when the runner's CLI is too old.
  */
-const ASPECT_CI_BAZELRC_MIN_VERSION = 'v2026.26.37'
+const ASPECT_CI_BAZELRC_MIN_VERSION = 'v2026.26.38'
 const ASPECT_CLI_RELEASES_URL = 'https://github.com/aspect-build/aspect-cli/releases'
 
 /**
