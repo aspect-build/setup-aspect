@@ -197,7 +197,7 @@ async function writeBazelrc () {
   if (await aspectCiBazelrc()) return
   if (await rosettaBazelrc()) return
 
-  markActionDeprecated(
+  core.warning(
     'Could not configure vanilla `bazel` calls on this Workflows runner: ' +
     '`aspect ci bazelrc` is unavailable and the legacy `rosetta` fallback is ' +
     'not on PATH. Warming completed and `aspect <task>` steps are unaffected, ' +
@@ -425,18 +425,6 @@ function warnIfIdTokenMissing () {
     'to your workflow or job. See ' +
     'https://docs.aspect.build/cli/authentication for details.'
   )
-}
-
-/**
- * Emit a `::warning::` and export `SETUP_ASPECT_GITHUB_ACTION_DEPRECATED=1`
- * to `GITHUB_ENV` so that downstream `aspect <task>` invocations can pick
- * up the same signal and surface it on their own status surfaces (task
- * summaries, BES reports, etc.) — without users having to scroll back to
- * the setup-aspect step in the GHA log to learn the action is out of date.
- */
-function markActionDeprecated (warningMessage) {
-  core.warning(warningMessage)
-  core.exportVariable('SETUP_ASPECT_GITHUB_ACTION_DEPRECATED', '1')
 }
 
 run()
