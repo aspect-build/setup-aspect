@@ -98151,9 +98151,10 @@ async function setupAspect () {
 // ─── Workflows-runner branch ─────────────────────────────────────────────────
 
 /**
- * Where to point users when `aspect ci bazelrc` is unavailable — the Aspect CLI
- * releases page, where a newer CLI that ships the `ci` command group lives.
+ * Minimum Aspect CLI version that ships `aspect ci bazelrc`, and where to get it.
+ * Shown when the runner's CLI is too old.
  */
+const ASPECT_CI_BAZELRC_MIN_VERSION = 'v2026.26.37'
 const ASPECT_CLI_RELEASES_URL = 'https://github.com/aspect-build/aspect-cli/releases'
 
 /**
@@ -98216,8 +98217,8 @@ async function aspectCiBazelrc () {
     const code = await lib_exec.exec('aspect', ['ci', 'bazelrc'], { ignoreReturnCode: true })
     if (code !== 0) {
       warning(
-        `\`aspect ci bazelrc\` is unavailable in this Aspect CLI (exit ${code}). ` +
-        `Upgrade to the latest aspect-cli to pick up the \`ci\` command: ${ASPECT_CLI_RELEASES_URL}. ` +
+        `\`aspect ci bazelrc\` is unavailable in this Aspect CLI (exit ${code}); ` +
+        `it requires aspect-cli ${ASPECT_CI_BAZELRC_MIN_VERSION} or newer (${ASPECT_CLI_RELEASES_URL}). ` +
         'Falling back to `rosetta bazelrc`.'
       )
       return false
@@ -98300,7 +98301,7 @@ async function writeBazelrc () {
     'not on PATH. Warming completed and `aspect <task>` steps are unaffected, ' +
     'but vanilla `bazel` calls will not pick up the runner\'s remote cache, ' +
     'repository cache, or disk cache and so will not function correctly. ' +
-    `Upgrade to the latest aspect-cli to pick up the \`ci\` command: ${ASPECT_CLI_RELEASES_URL}.`
+    `Upgrade aspect-cli to ${ASPECT_CI_BAZELRC_MIN_VERSION} or newer for \`aspect ci bazelrc\` (${ASPECT_CLI_RELEASES_URL}).`
   )
 }
 
