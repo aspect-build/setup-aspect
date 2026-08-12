@@ -26,7 +26,11 @@ async function run () {
   try {
     await setupAspect()
   } catch (error) {
-    core.setFailed(error.stack || error.message || String(error))
+    let message = error.stack || error.message || String(error)
+    if (error.cause) {
+      message += `\nCaused by: ${error.cause.stack || error.cause}`
+    }
+    core.setFailed(message)
   }
 }
 
