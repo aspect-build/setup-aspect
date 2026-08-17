@@ -151,10 +151,19 @@ async function downloadBazelisk (version) {
 async function resolveBazeliskRange (versionRange, filename) {
   const token = process.env.BAZELISK_GITHUB_TOKEN || ''
   const octokit = github.getOctokit(token, { baseUrl: 'https://api.github.com' })
-  const { data: releases } = await octokit.rest.repos.listReleases({
-    owner: 'bazelbuild',
-    repo: 'bazelisk',
-  })
+  let releases
+  try {
+    ({ data: releases } = await octokit.rest.repos.listReleases({
+      owner: 'bazelbuild',
+      repo: 'bazelisk',
+    }))
+  } catch (err) {
+    throw githubFailure({
+      what: 'the Bazelisk release list',
+      url: 'https://api.github.com/repos/bazelbuild/bazelisk/releases',
+      err,
+    })
+  }
   const tag = tc.evaluateVersions(releases.map(r => r.tag_name), versionRange)
   const release = releases.find(r => r.tag_name === tag)
   if (!release) {
@@ -174,11 +183,62 @@ async function resolveBazeliskRange (versionRange, filename) {
  */
 async function cacheDownload ({ tool, binary, version, url }) {
   core.info(`Downloading ${tool} from ${url}`)
-  const downloadPath = await tc.downloadTool(url)
+  let downloadPath
+  try {
+    downloadPath = await tc.downloadTool(url)
+  } catch (err) {
+    throw githubFailure({ what: tool, url, err })
+  }
   fs.chmodSync(downloadPath, '755')
   const cachePath = await tc.cacheFile(downloadPath, binary, tool, version)
   core.info(`Cached ${tool} to ${cachePath}`)
   return cachePath
+}
+
+const GITHUB_STATUS_URL = 'https://www.githubstatus.com'
+
+/**
+ * Wrap a failed GitHub download or API error with an actionable message.
+ * Distinguishes "this version/asset doesn't exist" (404), rate limiting
+ * (403/429), bad credentials (401), other client-side errors (4xx), and
+ * "GitHub is down or unreachable" (5xx and network-level errors like
+ * `socket hang up`) — pointing at the GitHub status page only where a
+ * retry is the likely fix. The original error is preserved as `cause`.
+ */
+function githubFailure ({ what, url, err }) {
+  // tc.downloadTool throws tc.HTTPError (httpStatusCode); octokit throws
+  // RequestError (status). Network-level failures have neither.
+  const status = err instanceof tc.HTTPError ? err.httpStatusCode : err?.status
+  let detail
+  if (status === 404) {
+    detail =
+      'GitHub responded with HTTP 404 (not found) — check that the ' +
+      'requested version exists and provides an asset for this platform.'
+  } else if (status === 403 || status === 429) {
+    detail =
+      `GitHub responded with HTTP ${status} — likely rate limiting on ` +
+      `shared CI egress. Re-run the job later, or check ${GITHUB_STATUS_URL} ` +
+      'for an ongoing incident.'
+  } else if (status === 401) {
+    detail =
+      'GitHub responded with HTTP 401 (unauthorized) — check the supplied ' +
+      'token (e.g. BAZELISK_GITHUB_TOKEN).'
+  } else if (status >= 400 && status < 500 && status !== 408) {
+    // 408 (request timeout) is transient and retried by tool-cache; when
+    // retries are exhausted it takes the retry guidance below instead.
+    detail =
+      `GitHub rejected the request with HTTP ${status}. This is a ` +
+      'client-side error — check the request rather than retrying.'
+  } else if (status) {
+    detail =
+      `GitHub responded with HTTP ${status}. This is likely a GitHub-side ` +
+      `problem — check ${GITHUB_STATUS_URL} and re-run the job once it recovers.`
+  } else {
+    detail =
+      `${err?.message || err}. github.com appears to be unreachable or ` +
+      `down — check ${GITHUB_STATUS_URL} and re-run the job once it recovers.`
+  }
+  return new Error(`Failed to download ${what} from ${url}: ${detail}`, { cause: err })
 }
 
 /** Look up `key` in `map`; throw with a tool-named error on miss. */
