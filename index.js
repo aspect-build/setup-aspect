@@ -73,6 +73,13 @@ async function setupAspect () {
 const BAZELRC_SUBCOMMANDS = [['setup', 'bazelrc'], ['ci', 'bazelrc']]
 
 /**
+ * The exit code the CLI's argument parser uses for a command line it cannot
+ * parse — an unrecognized command, or a flag this version does not have. A task
+ * that ran and refused exits 1, so the two are told apart.
+ */
+const USAGE_EXIT = 2
+
+/**
  * The aspect-cli release that ships `aspect setup bazelrc`, and where to get it.
  * Named in the upgrade hint shown when the CLI has the task under neither name:
  * that CLI has to be upgraded anyway, so point it at the current task rather
@@ -158,19 +165,34 @@ async function setupOnWorkflowsRunner () {
 }
 
 /**
+ * Every way to ask this CLI for the rc, best first: each set of flags in
+ * `flagSets`, under each name in `BAZELRC_SUBCOMMANDS`.
+ *
+ * Flags are tried outermost so a newer spelling is preferred over an older name.
+ * The set a caller puts last is its fallback for a CLI too old for the rest —
+ * `[]`, a bare run, when there is nothing better.
+ */
+function bazelrcAttempts (flagSets) {
+  return flagSets.flatMap((flags) => BAZELRC_SUBCOMMANDS.map((argv) => [...argv, ...flags]))
+}
+
+/**
  * Run the rc-generating task and report whether it wrote the rc.
  *
- * Tries each name in `BAZELRC_SUBCOMMANDS` in turn with `extraArgs` appended: a
- * non-zero exit means this CLI does not know that name (or, for `--home`, that
- * flag), not that generating the rc failed. Returns true on the first success,
- * false when no name is recognized. Callers check `aspect` is on PATH first, so
- * that a missing binary and an out-of-date one get different advice.
+ * Walks `bazelrcAttempts` until one succeeds. A non-zero exit moves on to the
+ * next form rather than failing: the CLI may not know the name, or may not know
+ * the flags. Exit 2 is the argument parser's — an unrecognized command or flag —
+ * so a run that exited otherwise is remembered as a real failure and reported as
+ * one, rather than as an out-of-date CLI.
+ *
+ * Callers check `aspect` is on PATH first, so that a missing binary and an
+ * out-of-date one get different advice.
  */
-async function runBazelrcTask (extraArgs, description) {
+async function runBazelrcTask (flagSets, description) {
   const userBazelrc = path.join(os.homedir(), '.bazelrc')
+  let ranAndFailed = 0
 
-  for (const argv of BAZELRC_SUBCOMMANDS) {
-    const full = [...argv, ...extraArgs]
+  for (const full of bazelrcAttempts(flagSets)) {
     const name = `aspect ${full.join(' ')}`
     core.startGroup(`Generate ${userBazelrc} via \`${name}\``)
     try {
@@ -180,14 +202,26 @@ async function runBazelrcTask (extraArgs, description) {
         printBazelrc(userBazelrc)
         return true
       }
-      core.info(`\`${name}\` is unavailable in this Aspect CLI (exit ${code}).`)
+      if (code === USAGE_EXIT) {
+        core.info(`\`${name}\` is unavailable in this Aspect CLI (exit ${code}); trying the next form.`)
+      } else {
+        ranAndFailed = code
+        core.info(`\`${name}\` failed (exit ${code}); trying the next form.`)
+      }
     } catch {
-      // `aspect` is on PATH but could not be spawned; the next name will not
+      // `aspect` is on PATH but could not be spawned; the next form will not
       // fare better, so stop here and let the caller fall back.
       return false
     } finally {
       core.endGroup()
     }
+  }
+
+  if (ranAndFailed) {
+    core.warning(
+      `\`aspect setup bazelrc\` ran but failed (exit ${ranAndFailed}), so vanilla \`bazel\` ` +
+      'calls are not configured. The message above says why.'
+    )
   }
   return false
 }
@@ -203,7 +237,7 @@ async function runBazelrcTask (extraArgs, description) {
  */
 async function aspectSetupBazelrc () {
   if (!(await onPath('aspect'))) return false
-  if (await runBazelrcTask([], 'Workflows-tuned')) return true
+  if (await runBazelrcTask([[]], 'Workflows-tuned')) return true
 
   core.warning(
     'This Aspect CLI cannot run `aspect setup bazelrc`; ' +
@@ -219,10 +253,13 @@ async function aspectSetupBazelrc () {
  * makes a plain `bazel build //...` share a cache across jobs and stream its
  * build to Aspect without the workflow configuring anything else.
  *
- * `--home` is what keeps the rc out of the checkout. Without it the task writes
- * `<workspace>/.aspect/bazelrc` and adds a `try-import` to the workspace
- * `.bazelrc` — files meant to be committed, which on CI would instead leave the
- * checkout dirty and the rc thrown away with the runner.
+ * `--home` is what keeps the rc out of the checkout: the alternative is
+ * `<workspace>/.aspect/bazelrc` plus a `try-import` in the workspace `.bazelrc`,
+ * files meant to be committed rather than produced on a runner. A current CLI
+ * picks the home layout on CI by itself, so the flag is belt-and-braces there;
+ * it is passed explicitly so the intent is on the command line, and so an older
+ * CLI that rejects it falls through to the `--output`/`--import-into` form,
+ * which names the same two files.
  *
  * The task defaults to the Aspect Cloud deployment and needs no login to write
  * the rc; `aspect-api-token` is still what lets Bazel authenticate to the cache
@@ -243,7 +280,16 @@ async function writeCloudBazelrc () {
     return false
   }
 
-  if (await runBazelrcTask(['--home'], 'Aspect remote cache')) return true
+  // Best first. `--home` is the current spelling; a CLI without it still has
+  // `--output`/`--import-into`, which name the same two files, so the home
+  // layout survives on an older CLI instead of degrading into the checkout. A
+  // bare run is the last resort.
+  const home = os.homedir()
+  if (await runBazelrcTask([
+    ['--home'],
+    [`--output=${path.join(home, '.aspect', 'bazelrc')}`, `--import-into=${path.join(home, '.bazelrc')}`],
+    []
+  ], 'Aspect remote cache')) return true
 
   core.warning(
     'This Aspect CLI cannot run `aspect setup bazelrc --home`, so `bazel` will ' +
