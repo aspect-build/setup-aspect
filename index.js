@@ -169,12 +169,16 @@ async function setupOnWorkflowsRunner () {
  * Every way to ask this CLI for the rc, best first: each set of flags in
  * `flagSets`, under each name in `BAZELRC_SUBCOMMANDS`.
  *
- * Flags are tried outermost so a newer spelling is preferred over an older name.
+ * Flags are tried outermost so a configured run is preferred over a bare one.
  * The set a caller puts last is its fallback for a CLI too old for the rest —
- * `[]`, a bare run, when there is nothing better.
+ * `[]`, a bare run, which is also the whole ladder when nothing is configured.
  */
 function bazelrcAttempts (flagSets) {
-  return flagSets.flatMap((flags) => BAZELRC_SUBCOMMANDS.map((argv) => [...argv, ...flags]))
+  // An unconfigured caller passes the same empty set twice — its flags, then
+  // its fallback — and there is no point running the same command line again.
+  const distinct = [...new Set(flagSets.map((flags) => flags.join('\u0000')))]
+    .map((key) => (key === '' ? [] : key.split('\u0000')))
+  return distinct.flatMap((flags) => BAZELRC_SUBCOMMANDS.map((argv) => [...argv, ...flags]))
 }
 
 /**
@@ -258,13 +262,10 @@ async function aspectSetupBazelrc () {
  * makes a plain `bazel build //...` share a cache across jobs and stream its
  * build to Aspect without the workflow configuring anything else.
  *
- * `--home` is what keeps the rc out of the checkout: the alternative is
- * `<workspace>/.aspect/bazelrc` plus a `try-import` in the workspace `.bazelrc`,
- * files meant to be committed rather than produced on a runner. A current CLI
- * picks the home layout on CI by itself, so the flag is belt-and-braces there;
- * it is passed explicitly so the intent is on the command line, and so an older
- * CLI that rejects it falls through to the `--output`/`--import-into` form,
- * which names the same two files.
+ * No flags by default. The CLI picks the home layout on CI itself, so there is
+ * nothing for the action to assert: `~/.aspect/bazelrc` with a `try-import` in
+ * `~/.bazelrc`, rather than the `<workspace>/.aspect/bazelrc` pair meant to be
+ * committed. The `home` input overrides that when a workflow wants the other.
  *
  * The task defaults to the Aspect Cloud deployment and needs no login to write
  * the rc; `aspect-api-token` is still what lets Bazel authenticate to the cache
@@ -285,24 +286,12 @@ async function writeCloudBazelrc () {
     return false
   }
 
-  // Best first, each rung carrying whatever the workflow configured. `--home`
-  // is the current spelling; a CLI without it still has `--output`/
-  // `--import-into`, which name the same two files, so the home layout survives
-  // on an older CLI instead of degrading into the checkout. A bare run is the
-  // last resort — and the only rung an older CLI accepts, which is why the
-  // configured flags are dropped there rather than the run being abandoned.
-  const home = os.homedir()
-  const configured = config.rcFlags
-  const explicitHome = configured.some((f) => f.startsWith('--home='))
-  if (await runBazelrcTask([
-    explicitHome ? configured : ['--home', ...configured],
-    [
-      `--output=${path.join(home, '.aspect', 'bazelrc')}`,
-      `--import-into=${path.join(home, '.bazelrc')}`,
-      ...configured.filter((f) => !f.startsWith('--home='))
-    ],
-    []
-  ], 'Aspect remote cache')) return true
+  // Whatever the workflow configured, then nothing. Unconfigured means an
+  // unadorned `aspect setup bazelrc`, which is the point: the CLI detects CI
+  // and picks the home rc itself, so the action has no opinion to add. The bare
+  // retry is for a CLI too old to know a flag that was configured — better it
+  // writes the rc it can than none at all.
+  if (await runBazelrcTask([config.rcFlags, []], 'Aspect remote cache')) return true
 
   core.warning(
     'This Aspect CLI cannot run `aspect setup bazelrc --home`, so `bazel` will ' +
