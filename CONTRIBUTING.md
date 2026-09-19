@@ -43,7 +43,7 @@ tags, both matching aspect-build/aspect-cli's scheme:
 | | Tag | Workflow | Trigger | GitHub Release? |
 |---|---|---|---|---|
 | **Weekly** | `YYYY.VV` (e.g. `2026.22`) | `weekly_tag.yaml` | cron + push to main | no |
-| **Release** | `vYYYY.VV.N` (e.g. `v2026.22.3`) | `tag_release.yaml` | manual `workflow_dispatch` | yes |
+| **Release** | `vYYYY.VV.N` (e.g. `v2026.38.0`) | `tag_release.yaml` | manual `workflow_dispatch` | yes |
 
 Across both tiers: **pin to the commit SHA, not the tag.** Tags are mutable and
 can be repointed at malicious code, so [GitHub recommends](https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions#using-third-party-actions)

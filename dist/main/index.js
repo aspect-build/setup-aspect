@@ -91859,7 +91859,7 @@ var lib_exec = __nccwpck_require__(5236);
 
 /**
  * Read the pinned aspect-cli version from `.aspect/version.axl`
- * (format: `version("2026.22.39")`) so the cli cache can key on the exact
+ * (format: `version("2026.38.24")`) so the cli cache can key on the exact
  * version without a download. This is the same file the launcher itself
  * reads, independent of `launcher-version`. Returns '' when the file is
  * absent or unparseable.
@@ -97842,7 +97842,7 @@ function _unique(values) {
 /**
  * Install the Aspect CLI launcher and put `aspect` on PATH.
  *
- * @param {string} version — pinned launcher version (e.g. "2026.22.39"),
+ * @param {string} version — pinned launcher version (e.g. "2026.38.24"),
  *                           or empty string for the latest release.
  */
 async function installLauncher (version) {

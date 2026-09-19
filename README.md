@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: aspect-build/setup-aspect@<commit-sha>
         with:
-          launcher-version: 2026.22.39
+          launcher-version: 2026.38.24
           bazelisk-version: 1.x
           bazelisk-cache: true
           disk-cache: ${{ github.workflow }}
@@ -38,7 +38,7 @@ jobs:
 **Pin to a full-length commit SHA**, not a branch or tag — tags are mutable and can be repointed at malicious code, so SHA-pinning is the [GitHub-recommended](https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions#using-third-party-actions) way to use third-party actions. Annotate with the version in a trailing comment for readability, and let Dependabot or Renovate keep the SHA fresh:
 
 ```yaml
-- uses: aspect-build/setup-aspect@<commit-sha> # v2026.22.3
+- uses: aspect-build/setup-aspect@<commit-sha> # v2026.38.0
 ```
 
 Find the SHA on the [Releases page](https://github.com/aspect-build/setup-aspect/releases) — each release's notes include a copy-paste snippet pinned to its SHA. (We also push lightweight `YYYY.VV` weekly tags for discoverability.) Either way, pin to the SHA rather than the tag, since tags are mutable.
@@ -70,7 +70,7 @@ Detection is based on the `ASPECT_WORKFLOWS_RUNNER` env var.
 
 | Input | Default | Purpose |
 |---|---|---|
-| `launcher-version` | `latest` | Aspect CLI launcher version to install (e.g. `2026.22.39`). The CLI version is pinned by `.aspect/version.axl` in your repo — the launcher reads that file and downloads the matching CLI on first `aspect` invocation. Ignored on Workflows runners or when `launcher-install` is `false`. |
+| `launcher-version` | `latest` | Aspect CLI launcher version to install (e.g. `2026.38.24`). The CLI version is pinned by `.aspect/version.axl` in your repo — the launcher reads that file and downloads the matching CLI on first `aspect` invocation. Ignored on Workflows runners or when `launcher-install` is `false`. |
 | `launcher-install` | `true` | Whether to install the Aspect CLI launcher. Set to `false` if you're providing `aspect` yourself (e.g. via a `curl install.aspect.build | bash` step earlier in the job). No-op on Aspect Workflows runners (the runner image already ships `aspect`). |
 | `aspect-api-token` | — | Long-lived `<CLIENT_ID>:<SECRET>` token, typically passed via the GitHub Actions secrets context (e.g. as `secrets.ASPECT_API_TOKEN` in a `with:` block). When set, setup-aspect runs `aspect auth login --with-api-token` (piping the token via stdin) — the short-lived JWT it produces is persisted locally for downstream `aspect <task>` calls via `ctx.aspect.auth.credentials()`. The long-lived token is **not** exported to `GITHUB_ENV`. Leave empty to skip the auth step. |
 | `bazelisk-version` | `latest` | Bazelisk version to install (semver range or exact, e.g. `1.x` or `1.21.0`). Default: `latest` (downloaded via GitHub's `/releases/latest/download/<asset>` redirect — no API call, no rate-limit risk). The install is skipped regardless of this input if `bazel` is already on PATH (setup-bazel ran first, you're on an Aspect Workflows runner, etc.). |
