@@ -242,7 +242,7 @@ async function runBazelrcTask (flagSets, description) {
  */
 async function aspectSetupBazelrc () {
   if (!(await onPath('aspect'))) return false
-  if (await runBazelrcTask([[]], 'Workflows-tuned')) return true
+  if (await runBazelrcTask([config.rcFlags, []], 'Workflows-tuned')) return true
 
   core.warning(
     'This Aspect CLI cannot run `aspect setup bazelrc`; ' +
@@ -285,14 +285,22 @@ async function writeCloudBazelrc () {
     return false
   }
 
-  // Best first. `--home` is the current spelling; a CLI without it still has
-  // `--output`/`--import-into`, which name the same two files, so the home
-  // layout survives on an older CLI instead of degrading into the checkout. A
-  // bare run is the last resort.
+  // Best first, each rung carrying whatever the workflow configured. `--home`
+  // is the current spelling; a CLI without it still has `--output`/
+  // `--import-into`, which name the same two files, so the home layout survives
+  // on an older CLI instead of degrading into the checkout. A bare run is the
+  // last resort — and the only rung an older CLI accepts, which is why the
+  // configured flags are dropped there rather than the run being abandoned.
   const home = os.homedir()
+  const configured = config.rcFlags
+  const explicitHome = configured.some((f) => f.startsWith('--home='))
   if (await runBazelrcTask([
-    ['--home'],
-    [`--output=${path.join(home, '.aspect', 'bazelrc')}`, `--import-into=${path.join(home, '.bazelrc')}`],
+    explicitHome ? configured : ['--home', ...configured],
+    [
+      `--output=${path.join(home, '.aspect', 'bazelrc')}`,
+      `--import-into=${path.join(home, '.bazelrc')}`,
+      ...configured.filter((f) => !f.startsWith('--home='))
+    ],
     []
   ], 'Aspect remote cache')) return true
 

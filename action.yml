@@ -101,8 +101,9 @@ inputs:
       Bazel can authenticate to it, and to give a single-tenant
       deployment its own `--config` section in the generated rc.
 
-      The rc is written to `~/.bazelrc` rather than into the checkout,
-      so the repository is left clean.
+      The rc is written to `~/.aspect/bazelrc` and `try-import`ed from
+      `~/.bazelrc`, rather than into the checkout, so the repository is
+      left clean.
 
       Set to `false` if you configure Bazel's remote cache yourself, or
       to keep setup-aspect from touching `~/.bazelrc`. With it off you
@@ -113,6 +114,47 @@ inputs:
       pointing at the runner's services.
     required: false
     default: 'true'
+
+  remote:
+    description: |
+      Which of the deployment's remote endpoints the generated rc turns
+      on, passed to `aspect setup bazelrc` as `--remote=<value>`. Unset
+      by default, which leaves the CLI's own `auto`: the remote cache
+      and BES on CI, and nothing off it.
+
+      Same grammar as `aspect build --remote`. `exec` adds remote
+      execution, which is never automatic. `no-cache` / `no-bes` /
+      `no-exec` subtract, so `no-bes` is the cache alone. `none` enables
+      nothing. `auto` is the default spelled out.
+    required: false
+    default: ''
+
+  home:
+    description: |
+      Which rc `aspect setup bazelrc` writes, passed as `--home=<value>`.
+      Unset by default, which leaves the CLI's own `auto`: the machine's
+      rc under `~/.aspect` on CI, and the checkout's off it.
+
+      `false` writes the checkout's `<workspace>/.aspect/bazelrc` and a
+      `try-import` into the repository's `.bazelrc` instead — files meant
+      to be committed, so this is for a job whose purpose is regenerating
+      them. `true` forces the machine's rc.
+    required: false
+    default: ''
+
+  force:
+    description: |
+      Regenerate the rc even if one is already there, passing `--force`.
+      Off by default, because the CLI keeps an existing rc: the
+      checkout's is the repository's to edit, and the machine's may
+      belong to a runner someone set up by hand.
+
+      Worth turning on for a persistent self-hosted runner, whose home
+      directory survives between jobs and would otherwise keep the rc
+      written by the first job on it. An ephemeral runner starts clean,
+      so this changes nothing there.
+    required: false
+    default: 'false'
 
   disk-cache:
     description: |
