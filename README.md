@@ -1,16 +1,22 @@
 # setup-aspect
 
-GitHub Action that installs the [Aspect CLI](https://docs.aspect.build/cli/overview) launcher, installs Bazelisk (skipped automatically if `bazel` is already on PATH), configures Bazel for CI caching, and authenticates with the Aspect API — all in one step.
+GitHub Action that installs the [Aspect CLI](https://docs.aspect.build/cli/overview) launcher, installs Bazelisk (skipped automatically if `bazel` is already on PATH), points Bazel at Aspect's remote cache, and authenticates with the Aspect API — all in one step.
 
 ## Usage
 
-Minimal — latest launcher, with Bazelisk and caching on by their defaults:
+Minimal — latest launcher, Bazelisk, and the Aspect remote cache:
 
 ```yaml
 - uses: actions/checkout@v6
 - uses: aspect-build/setup-aspect@<commit-sha>
-- run: aspect test //...
+  with:
+    aspect-api-token: ${{ secrets.ASPECT_API_TOKEN }}
+- run: bazel test //...
 ```
+
+That is the whole setup. setup-aspect runs `aspect setup bazelrc --home`, which writes a `~/.bazelrc` pointing at your Aspect deployment's remote cache and BES — so a plain `bazel` call shares a cache with every other job and branch, and streams its build to Aspect. `aspect build --remote //...` and `aspect test --remote //...` reach the same deployment.
+
+The rc goes to `~/.bazelrc`, never into the checkout, so the repository stays clean.
 
 Full — pin versions, segregate caches per workflow, and authenticate:
 
@@ -31,8 +37,8 @@ jobs:
           disk-cache: ${{ github.workflow }}
           repository-cache: ${{ github.workflow }}
           aspect-api-token: ${{ secrets.ASPECT_API_TOKEN }}
-      - run: aspect build //...
-      - run: aspect test //...
+      - run: aspect build --remote //...
+      - run: aspect test --remote //...
 ```
 
 **Pin to a full-length commit SHA**, not a branch or tag — tags are mutable and can be repointed at malicious code, so SHA-pinning is the [GitHub-recommended](https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions#using-third-party-actions) way to use third-party actions. Annotate with the version in a trailing comment for readability, and let Dependabot or Renovate keep the SHA fresh:
@@ -51,9 +57,12 @@ setup-aspect runs in one of two modes depending on the runner:
 
 1. **Install the Aspect CLI launcher** (`aspect` on `PATH`). Reads `.aspect/version.axl` from your repo on first invocation to fetch the matching CLI binary. Points `ASPECT_LAUNCHER_CACHE` and `ASPECT_CLI_CACHE` at GHA-cacheable directories (with distinct roots) and restores them, so the download is skipped on warm runs.
 2. **Install Bazelisk** (default: `latest`). Skipped if `bazel` is already on PATH (you don't need both `setup-bazel` and `setup-aspect`). Caches the binary via `actions/tool-cache` and via `actions/cache` (unless `bazelisk-cache: false`).
-3. **Configure `~/.bazelrc`** with `--disk_cache`, `--repository_cache`, and any extra lines from the `bazelrc` input. Idempotent — appends only directives that aren't already present.
-4. **Restore caches** via `@actions/cache`. The disk, repository, Bazelisk, and Aspect CLI caches are all on by default on ephemeral runners. The post-job hook saves them on exit.
-5. **Authenticate** to the Aspect API via `aspect auth login --with-api-token` if `aspect-api-token` is set. The resulting short-lived JWT is persisted locally; the long-lived `<client_id>:<secret>` is never written to `GITHUB_ENV` (see [Security](#security) below).
+3. **Restore caches** via `@actions/cache`. The repository, Bazelisk, and Aspect CLI caches are on by default on ephemeral runners; the disk cache is opt-in (see `disk-cache`). The post-job hook saves them on exit.
+4. **Authenticate** to the Aspect API via `aspect auth login --with-api-token` if `aspect-api-token` is set. The resulting short-lived JWT is persisted locally; the long-lived `<client_id>:<secret>` is never written to `GITHUB_ENV` (see [Security](#security) below).
+5. **Point `~/.bazelrc` at the Aspect remote cache** by running `aspect setup bazelrc --home`, so vanilla `bazel` calls use the deployment's remote cache and BES. `--home` is what keeps the rc out of the checkout — without it the task writes `<workspace>/.aspect/bazelrc` and a `try-import`, files meant to be committed rather than produced on a runner. Set `remote-cache: false` to skip.
+6. **Append `~/.bazelrc` directives** — `--repository_cache`, `--disk_cache` when enabled, and any extra lines from the `bazelrc` input. Idempotent, and appended *after* step 5 so these lines override the generated ones.
+
+Steps 4–6 are ordered deliberately: authenticating first puts a single-tenant deployment on record so the generated rc includes it, and the rc task rewrites `~/.bazelrc` whole, so anything setup-aspect adds has to come after it.
 
 ### On an Aspect Workflows runner (`ASPECT_WORKFLOWS_RUNNER` env var set)
 
@@ -75,9 +84,10 @@ Detection is based on the `ASPECT_WORKFLOWS_RUNNER` env var.
 | `aspect-api-token` | — | Long-lived `<CLIENT_ID>:<SECRET>` token, typically passed via the GitHub Actions secrets context (e.g. as `secrets.ASPECT_API_TOKEN` in a `with:` block). When set, setup-aspect runs `aspect auth login --with-api-token` (piping the token via stdin) — the short-lived JWT it produces is persisted locally for downstream `aspect <task>` calls via `ctx.aspect.auth.credentials()`. The long-lived token is **not** exported to `GITHUB_ENV`. Leave empty to skip the auth step. |
 | `bazelisk-version` | `latest` | Bazelisk version to install (semver range or exact, e.g. `1.x` or `1.21.0`). Default: `latest` (downloaded via GitHub's `/releases/latest/download/<asset>` redirect — no API call, no rate-limit risk). The install is skipped regardless of this input if `bazel` is already on PATH (setup-bazel ran first, you're on an Aspect Workflows runner, etc.). |
 | `bazelisk-cache` | `true` | Cache the Bazelisk binary across runs (keyed on `.bazelversion`). On by default; set `false` to disable. |
-| `disk-cache` | `true` | Cache Bazel's `--disk_cache` outputs across runs. On by default. Set to a string to segregate caches by stage (a common pattern is to key on the GHA `github.workflow` value so each workflow gets its own cache). `false` disables. Ignored on Workflows runners (which route Bazel through their own remote cache). |
+| `remote-cache` | `true` | Point `~/.bazelrc` at the Aspect deployment's remote cache and BES via `aspect setup bazelrc --home`. On by default — this is what makes a plain `bazel build //...` share a cache across jobs. The deployment defaults to Aspect Cloud; `aspect-api-token` is what lets Bazel authenticate to it. `false` leaves `~/.bazelrc` alone. Ignored on Workflows runners, which generate their own rc. |
+| `disk-cache` | `false` | Cache Bazel's `--disk_cache` outputs across runs, through the GHA cache. **Off by default** — `remote-cache` covers the same ground and is shared across jobs and branches, where this is per-runner and capped by the GHA cache's 10 GB per-repo budget. `true` re-enables it; a string segregates caches by stage (a common pattern is to key on the GHA `github.workflow` value). Worth turning on when `remote-cache` is off. Ignored on Workflows runners. |
 | `repository-cache` | `true` | Enable Bazel `--repository_cache` (external-repo download bytes). On by default. Set to a string to segregate caches by stage (e.g. the GHA `github.workflow` value). `false` disables. Ignored on Workflows runners. |
-| `bazelrc` | "" | Extra lines appended to `~/.bazelrc`. Multiline YAML supported. Append-only and idempotent. Ignored on Workflows runners. |
+| `bazelrc` | "" | Extra lines appended to `~/.bazelrc`. Multiline YAML supported. Append-only and idempotent. Appended after `remote-cache` generates the rc, so these lines win where they set the same flag. Ignored on Workflows runners. |
 
 ## Security
 

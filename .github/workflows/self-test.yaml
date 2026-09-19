@@ -74,6 +74,27 @@ jobs:
           grep -q 'repository_cache=' "$HOME/.bazelrc" \
             || { echo "::error::~/.bazelrc missing --repository_cache directive"; cat "$HOME/.bazelrc"; exit 1; }
 
+  disk-cache-off-by-default:
+    name: disk cache off by default
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      # No cache inputs: exercises the defaults, where the Aspect remote cache
+      # replaces the GHA-backed disk cache.
+      - uses: ./
+      - name: assert no --disk_cache directive was added
+        run: |
+          set -euo pipefail
+          if [ -f "$HOME/.bazelrc" ] && grep -q 'disk_cache=' "$HOME/.bazelrc"; then
+            echo "::error::~/.bazelrc has a --disk_cache directive, but disk-cache defaults to false"
+            cat "$HOME/.bazelrc"
+            exit 1
+          fi
+          # The repository cache is still on by default, so the append step ran
+          # and this is a real assertion rather than a missing-file pass.
+          grep -q 'repository_cache=' "$HOME/.bazelrc" \
+            || { echo "::error::~/.bazelrc missing --repository_cache directive"; cat "$HOME/.bazelrc"; exit 1; }
+
   bazelrc-idempotent:
     name: bazelrc append is idempotent
     runs-on: ubuntu-latest

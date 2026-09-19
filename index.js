@@ -3,10 +3,21 @@
 
 /**
  * setup-aspect main entry: install the Aspect CLI launcher, install
- * Bazelisk (unless `bazel` is already on PATH), configure Bazel for CI
- * caching, and authenticate with the Aspect API via the JWT-persist
- * flow. On Aspect Workflows runners the action takes a much narrower
- * path — see `setupOnWorkflowsRunner` below.
+ * Bazelisk (unless `bazel` is already on PATH), authenticate with the Aspect
+ * API via the JWT-persist flow, and point Bazel at a cache. On Aspect
+ * Workflows runners the action takes a much narrower path — see
+ * `setupOnWorkflowsRunner` below.
+ *
+ * On an ephemeral runner that cache is the Aspect deployment's:
+ * `aspect setup bazelrc --home` writes `~/.bazelrc` with its remote cache and
+ * BES endpoints, so a plain `bazel build //...` reads and writes the shared
+ * cache and streams the build to Aspect with nothing else configured. The
+ * GHA-backed `--disk_cache`, which used to be the only cache here, is off by
+ * default now that the remote cache covers the same ground; `disk-cache: true`
+ * brings it back for repos that want both.
+ *
+ * Ordering inside `setupOnEphemeralRunner` is load-bearing — the rc task
+ * rewrites `~/.bazelrc` whole — and is documented at each call site.
  *
  * post.js handles the post-job cache save.
  */
@@ -44,14 +55,13 @@ async function setupAspect () {
   core.exportVariable('ASPECT_LAUNCHER_CACHE', config.paths.aspectLauncherCache)
   core.exportVariable('ASPECT_CLI_CACHE', config.paths.aspectCliCache)
 
+  // Both modes authenticate and generate an rc; they differ in what the rc
+  // describes and in what has to be installed first, so each owns its ordering.
   if (config.onWorkflowsRunner) {
     await setupOnWorkflowsRunner()
   } else {
     await setupOnEphemeralRunner()
   }
-
-  // Auth runs in both modes — same JWT-persist benefit either way.
-  await loginIfApiToken()
 }
 
 // ─── Workflows-runner branch ─────────────────────────────────────────────────
@@ -139,32 +149,34 @@ async function setupOnWorkflowsRunner () {
 
   await waitForWarming()
 
+  // Before the rc is generated: the runner's rc is built from its environment
+  // rather than from what is logged in, but auth is cheap and the credential
+  // helper the rc names has to work for the first `bazel` call either way.
+  await loginIfApiToken()
+
   await writeBazelrc()
 }
 
 /**
- * Preferred generator: `aspect setup bazelrc` → `~/.bazelrc`.
+ * Run the rc-generating task and report whether it wrote the rc.
  *
- * Writes the runner's remote cache, repository cache, and output flags — the
- * same flags `aspect <task>` injects. It reads the runner's environment, not a
- * Workflows config, so no throwaway config or `.bazelversion` plumbing is
- * needed.
- *
- * Tries each name in `BAZELRC_SUBCOMMANDS` in turn: a non-zero exit means this
- * CLI does not know that name, not that generating the rc failed. Returns true
- * on the first success; false when `aspect` is missing or no name is recognized.
+ * Tries each name in `BAZELRC_SUBCOMMANDS` in turn with `extraArgs` appended: a
+ * non-zero exit means this CLI does not know that name (or, for `--home`, that
+ * flag), not that generating the rc failed. Returns true on the first success,
+ * false when no name is recognized. Callers check `aspect` is on PATH first, so
+ * that a missing binary and an out-of-date one get different advice.
  */
-async function aspectSetupBazelrc () {
-  if (!(await onPath('aspect'))) return false
+async function runBazelrcTask (extraArgs, description) {
   const userBazelrc = path.join(os.homedir(), '.bazelrc')
 
   for (const argv of BAZELRC_SUBCOMMANDS) {
-    const name = `aspect ${argv.join(' ')}`
+    const full = [...argv, ...extraArgs]
+    const name = `aspect ${full.join(' ')}`
     core.startGroup(`Generate ${userBazelrc} via \`${name}\``)
     try {
-      const code = await exec.exec('aspect', argv, { ignoreReturnCode: true })
+      const code = await exec.exec('aspect', full, { ignoreReturnCode: true })
       if (code === 0) {
-        core.info(`Wrote Workflows-tuned bazelrc to ${userBazelrc}`)
+        core.info(`Wrote ${description} bazelrc to ${userBazelrc}`)
         printBazelrc(userBazelrc)
         return true
       }
@@ -177,11 +189,66 @@ async function aspectSetupBazelrc () {
       core.endGroup()
     }
   }
+  return false
+}
+
+/**
+ * Preferred generator on a Workflows runner: `aspect setup bazelrc` →
+ * `~/.bazelrc`.
+ *
+ * Writes the runner's remote cache, repository cache, and output flags — the
+ * same flags `aspect <task>` injects. It reads the runner's environment, not a
+ * Workflows config, so no throwaway config or `.bazelversion` plumbing is
+ * needed, and no `--home`: the runner's rc is already the home rc.
+ */
+async function aspectSetupBazelrc () {
+  if (!(await onPath('aspect'))) return false
+  if (await runBazelrcTask([], 'Workflows-tuned')) return true
 
   core.warning(
     'This Aspect CLI cannot run `aspect setup bazelrc`; ' +
     `it requires aspect-cli ${ASPECT_SETUP_BAZELRC_MIN_VERSION} or newer (${ASPECT_CLI_RELEASES_URL}). ` +
     'Trying the legacy generator instead.'
+  )
+  return false
+}
+
+/**
+ * Ephemeral-runner generator: `aspect setup bazelrc --home` → `~/.bazelrc`,
+ * holding the Aspect deployment's remote cache and BES endpoints. That is what
+ * makes a plain `bazel build //...` share a cache across jobs and stream its
+ * build to Aspect without the workflow configuring anything else.
+ *
+ * `--home` is what keeps the rc out of the checkout. Without it the task writes
+ * `<workspace>/.aspect/bazelrc` and adds a `try-import` to the workspace
+ * `.bazelrc` — files meant to be committed, which on CI would instead leave the
+ * checkout dirty and the rc thrown away with the runner.
+ *
+ * The task defaults to the Aspect Cloud deployment and needs no login to write
+ * the rc; `aspect-api-token` is still what lets Bazel authenticate to the cache
+ * the rc names, and a token for a single-tenant deployment also gives that
+ * deployment its own `--config` section here.
+ *
+ * Returns whether the rc was written. A failure is warned, not fatal: the job
+ * still builds, just without the remote cache.
+ */
+async function writeCloudBazelrc () {
+  if (!(await onPath('aspect'))) {
+    core.warning(
+      '`aspect` is not on PATH, so `aspect setup bazelrc --home` could not run ' +
+      'and `bazel` will not reach the Aspect remote cache. This is expected ' +
+      'with `launcher-install: false` when you install `aspect` in a later ' +
+      'step — run `aspect setup bazelrc --home` yourself once it is available.'
+    )
+    return false
+  }
+
+  if (await runBazelrcTask(['--home'], 'Aspect remote cache')) return true
+
+  core.warning(
+    'This Aspect CLI cannot run `aspect setup bazelrc --home`, so `bazel` will ' +
+    `not reach the Aspect remote cache (${ASPECT_CLI_RELEASES_URL}). ` +
+    'Upgrade the CLI, or set `disk-cache: true` to cache through GitHub Actions instead.'
   )
   return false
 }
@@ -361,12 +428,8 @@ async function setupOnEphemeralRunner () {
   }
   await installBazelisk(config.bazeliskVersion)
 
-  if (config.bazelrcUpdatesEnabled) {
-    setupBazelrc()
-  }
-
-  // Restore before `loginIfApiToken` runs `aspect auth login` so the cli isn't
-  // re-downloaded on warm runs; `config.caches` is ordered cli-caches-first.
+  // Restore before the first `aspect` call so the cli isn't re-downloaded on
+  // warm runs; `config.caches` is ordered cli-caches-first.
   const enabled = config.caches.filter(c => c.enabled)
   if (enabled.length > 0) {
     // Jitter once before the first cache-service call to soften thundering-herd
@@ -376,6 +439,42 @@ async function setupOnEphemeralRunner () {
       await restoreCache(cacheConfig)
     }
   }
+
+  // Auth before the rc is generated: the token is what puts a single-tenant
+  // deployment on record, and the rc gives each one its own `--config` section.
+  await loginIfApiToken()
+
+  let remoteCacheConfigured = false
+  if (config.remoteCache) {
+    remoteCacheConfigured = await writeCloudBazelrc()
+  } else {
+    core.info('remote-cache: false — skipping `aspect setup bazelrc --home`')
+  }
+
+  // Last, because the rc task rewrites `~/.bazelrc` whole: appending after it
+  // keeps the `bazelrc` input's lines, and lets them override the generated
+  // ones, where writing them first would have them erased.
+  if (config.bazelrcUpdatesEnabled) {
+    setupBazelrc()
+  }
+
+  warnIfUncached(remoteCacheConfigured)
+}
+
+/**
+ * Warn when the job ends up with no Bazel cache at all. `disk-cache` is off by
+ * default now that the remote cache replaces it, so a job whose remote cache
+ * also failed to configure would quietly rebuild everything every run — slower
+ * CI with nothing in the log to explain it.
+ */
+function warnIfUncached (remoteCacheConfigured) {
+  if (remoteCacheConfigured || config.diskCache.enabled) return
+  core.warning(
+    'This job has no Bazel cache: `~/.bazelrc` was not pointed at an Aspect ' +
+    'remote cache, and `disk-cache` is disabled, so every build starts cold. ' +
+    'Leave `remote-cache` on to use the Aspect remote cache, or set ' +
+    '`disk-cache: true` for a GitHub Actions-backed disk cache instead.'
+  )
 }
 
 function setupBazelrc () {
