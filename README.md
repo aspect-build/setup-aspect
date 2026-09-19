@@ -14,7 +14,7 @@ Minimal — latest launcher, Bazelisk, and the Aspect remote cache:
 - run: bazel test //...
 ```
 
-That is the whole setup. setup-aspect runs `aspect setup bazelrc --home`, which writes a `~/.bazelrc` pointing at your Aspect deployment's remote cache and BES — so a plain `bazel` call shares a cache with every other job and branch, and streams its build to Aspect. `aspect build --remote //...` and `aspect test --remote //...` reach the same deployment.
+That is the whole setup. setup-aspect runs `aspect setup bazelrc --home`, which writes `~/.aspect/bazelrc` with your Aspect deployment's remote cache and BES and `try-import`s it from `~/.bazelrc` — so a plain `bazel` call shares a cache with every other job and branch, and streams its build to Aspect. `aspect build --remote //...` and `aspect test --remote //...` reach the same deployment.
 
 The rc goes to `~/.bazelrc`, never into the checkout, so the repository stays clean.
 
@@ -59,10 +59,10 @@ setup-aspect runs in one of two modes depending on the runner:
 2. **Install Bazelisk** (default: `latest`). Skipped if `bazel` is already on PATH (you don't need both `setup-bazel` and `setup-aspect`). Caches the binary via `actions/tool-cache` and via `actions/cache` (unless `bazelisk-cache: false`).
 3. **Restore caches** via `@actions/cache`. The repository, Bazelisk, and Aspect CLI caches are on by default on ephemeral runners; the disk cache is opt-in (see `disk-cache`). The post-job hook saves them on exit.
 4. **Authenticate** to the Aspect API via `aspect auth login --with-api-token` if `aspect-api-token` is set. The resulting short-lived JWT is persisted locally; the long-lived `<client_id>:<secret>` is never written to `GITHUB_ENV` (see [Security](#security) below).
-5. **Point `~/.bazelrc` at the Aspect remote cache** by running `aspect setup bazelrc --home`, so vanilla `bazel` calls use the deployment's remote cache and BES. `--home` is what keeps the rc out of the checkout — without it the task writes `<workspace>/.aspect/bazelrc` and a `try-import`, files meant to be committed rather than produced on a runner. Set `remote-cache: false` to skip.
-6. **Append `~/.bazelrc` directives** — `--repository_cache`, `--disk_cache` when enabled, and any extra lines from the `bazelrc` input. Idempotent, and appended *after* step 5 so these lines override the generated ones.
+5. **Point `~/.bazelrc` at the Aspect remote cache** by running `aspect setup bazelrc --home`, which writes `~/.aspect/bazelrc` and adds a `try-import` for it at the top of `~/.bazelrc`, so vanilla `bazel` calls use the deployment's remote cache and BES. `--home` keeps it out of the checkout, where the task would instead write `<workspace>/.aspect/bazelrc` and a `try-import` — files meant to be committed rather than produced on a runner. Set `remote-cache: false` to skip.
+6. **Append `~/.bazelrc` directives** — `--repository_cache`, `--disk_cache` when enabled, and any extra lines from the `bazelrc` input. Idempotent, and appended below step 5's `try-import`, so these lines override the generated ones.
 
-Steps 4–6 are ordered deliberately: authenticating first puts a single-tenant deployment on record so the generated rc includes it, and the rc task rewrites `~/.bazelrc` whole, so anything setup-aspect adds has to come after it.
+Step 4 comes first deliberately: authenticating puts a single-tenant deployment on record so the generated rc includes it. Step 6's placement is about precedence rather than survival — the rc task only adds its `try-import` at the top of `~/.bazelrc` and leaves the rest alone, and Bazel takes the last value of a flag, so lines below that import win over the generated rc.
 
 ### On an Aspect Workflows runner (`ASPECT_WORKFLOWS_RUNNER` env var set)
 

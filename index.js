@@ -16,8 +16,9 @@
  * default now that the remote cache covers the same ground; `disk-cache: true`
  * brings it back for repos that want both.
  *
- * Ordering inside `setupOnEphemeralRunner` is load-bearing — the rc task
- * rewrites `~/.bazelrc` whole — and is documented at each call site.
+ * Ordering inside `setupOnEphemeralRunner` matters — auth has to precede the rc
+ * task, and the `bazelrc` input's lines have to land below its `try-import` — and
+ * is documented at each call site.
  *
  * post.js handles the post-job cache save.
  */
@@ -190,16 +191,20 @@ function bazelrcAttempts (flagSets) {
  */
 async function runBazelrcTask (flagSets, description) {
   const userBazelrc = path.join(os.homedir(), '.bazelrc')
+  // What the task generates, and what `~/.bazelrc` `try-import`s. Older CLIs
+  // wrote the whole rc into `~/.bazelrc` itself, so fall back to that.
+  const generatedRc = path.join(os.homedir(), '.aspect', 'bazelrc')
   let ranAndFailed = 0
 
   for (const full of bazelrcAttempts(flagSets)) {
     const name = `aspect ${full.join(' ')}`
-    core.startGroup(`Generate ${userBazelrc} via \`${name}\``)
+    core.startGroup(`Generate ${generatedRc} via \`${name}\``)
     try {
       const code = await exec.exec('aspect', full, { ignoreReturnCode: true })
       if (code === 0) {
-        core.info(`Wrote ${description} bazelrc to ${userBazelrc}`)
-        printBazelrc(userBazelrc)
+        const written = fs.existsSync(generatedRc) ? generatedRc : userBazelrc
+        core.info(`Wrote ${description} bazelrc to ${written}`)
+        printBazelrc(written)
         return true
       }
       if (code === USAGE_EXIT) {
@@ -497,9 +502,9 @@ async function setupOnEphemeralRunner () {
     core.info('remote-cache: false — skipping `aspect setup bazelrc --home`')
   }
 
-  // Last, because the rc task rewrites `~/.bazelrc` whole: appending after it
-  // keeps the `bazelrc` input's lines, and lets them override the generated
-  // ones, where writing them first would have them erased.
+  // Last, so these lines sit below the `try-import` the rc task adds at the top
+  // of `~/.bazelrc`. Bazel takes the last value of a flag, so that is what lets
+  // them override the generated rc.
   if (config.bazelrcUpdatesEnabled) {
     setupBazelrc()
   }
