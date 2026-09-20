@@ -91,8 +91,8 @@ inputs:
 
   bazelrc-generate:
     description: |
-      Whether to generate a Bazel rc at all, by running
-      `aspect setup bazelrc`. On by default.
+      Whether to write `~/.aspect/bazelrc`, and the `try-import` for it
+      in `~/.bazelrc`, by running `aspect setup bazelrc`. On by default.
 
       This is what makes a plain `bazel build //...` read and write a
       cache shared across jobs and branches, and stream the build to
@@ -114,9 +114,10 @@ inputs:
       so the job still caches
       something.
 
-      On an Aspect Workflows runner this skips that runner's own rc,
-      which points Bazel at the runner's services — `aspect <task>`
-      still reaches them, a vanilla `bazel` call no longer would.
+      On an Aspect Workflows runner the same two files hold that
+      runner's own services rather than a deployment's, and `false`
+      skips them there too — `aspect <task>` still reaches those
+      services, a vanilla `bazel` call no longer would.
     required: false
     default: 'true'
 

@@ -98288,7 +98288,7 @@ const HEADER_FLAG_RE = new RegExp(
  * Redact header-flag values in a rendered rc so the echoed copy doesn't leak
  * credentials or the runner identity. `--remote_header=x-identity=<uuid>`
  * becomes `--remote_header=x-identity=<REDACTED>`; the flag and header name
- * stay visible so the rc is still legible.
+ * stay visible so the echoed rc is still legible.
  */
 function redactBazelrc (text) {
   return text
@@ -98337,7 +98337,7 @@ async function setupOnWorkflowsRunner () {
 
   await waitForWarming()
 
-  // Before the rc is generated: the runner's rc is built from its environment
+  // Before ~/.aspect/bazelrc is written: it is built from the runner's environment
   // rather than from what is logged in, but auth is cheap and the credential
   // helper the rc names has to work for the first `bazel` call either way.
   await loginIfApiToken()
