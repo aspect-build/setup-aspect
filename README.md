@@ -92,6 +92,19 @@ Detection is based on the `ASPECT_WORKFLOWS_RUNNER` env var.
 | `force` | `false` | Regenerate the rc even if one is already there (`--force`). Worth turning on for a persistent self-hosted runner, whose home directory survives between jobs; an ephemeral runner starts clean, so it changes nothing there. |
 | `bazelrc` | "" | Extra lines appended to `~/.bazelrc`. Multiline YAML supported. Append-only and idempotent. Appended after `remote-cache` generates the rc, so these lines win where they set the same flag. Ignored on Workflows runners. |
 
+Which Bazel flags the generated rc carries is a repository choice, not a workflow
+one. To drop a flag the rc would otherwise set, name it in the repo's
+`.aspect/config.axl`, where it covers every CI provider and local runs alike:
+
+```python
+def config(ctx: ConfigContext):
+    ctx.tasks["setup/bazelrc"].args.omit_bazel_flags = [
+        "--execution_log_compact_file",
+    ]
+```
+
+Endpoints, credentials, and the runner's output paths cannot be omitted.
+
 ## Security
 
 ### How `ASPECT_API_TOKEN` is handled
