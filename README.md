@@ -16,7 +16,7 @@ Minimal — latest launcher, Bazelisk, and the Aspect remote cache:
 - run: bazel test //...
 ```
 
-That is the whole setup. setup-aspect runs `aspect setup bazelrc`, which writes `~/.aspect/bazelrc` with your Aspect deployment's remote cache and BES and `try-import`s it from `~/.bazelrc` — so a plain `bazel` call shares a cache with every other job and branch, and streams its build to Aspect. `aspect build --remote //...` and `aspect test --remote //...` reach the same deployment.
+That is the whole setup. setup-aspect runs `aspect setup bazelrc`, which writes `~/.aspect/bazelrc` with your Aspect deployment's remote cache and BES and `try-import`s it from `~/.bazelrc` — so a plain `bazel` call shares a cache with every other job and branch, and streams its build to Aspect. `aspect build //...` and `aspect test //...` reach the same deployment with no flag of their own — on CI a task wires the default deployment itself.
 
 The rc goes to `~/.bazelrc`, never into the checkout, so the repository stays clean.
 
