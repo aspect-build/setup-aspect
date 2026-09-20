@@ -98451,17 +98451,43 @@ async function aspectSetupBazelrc () {
  * the rc names, and a token for a single-tenant deployment also gives that
  * deployment its own `--config` section here.
  *
- * Returns whether the rc was written. A failure is warned, not fatal: the job
- * still builds, just without the remote cache.
+ * `authenticated` is whether the ASPECT_API_TOKEN exchange worked; false means
+ * the rc is written with the cache and BES disabled rather than not at all.
+ *
+ * Returns whether the job ends up with the remote cache configured — false when
+ * the rc could not be written and when it was written with caching off, since
+ * the caller uses this to decide whether any cache is in play. A failure is
+ * warned, not fatal: the job still builds, just uncached.
  */
-async function writeCloudBazelrc () {
+async function writeCloudBazelrc (authenticated) {
   if (!(await onPath('aspect'))) {
     warning(
-      '`aspect` is not on PATH, so `aspect setup bazelrc --home` could not run ' +
+      '`aspect` is not on PATH, so `aspect setup bazelrc` could not run ' +
       'and `bazel` will not reach the Aspect remote cache. This is expected ' +
       'with `launcher-install: false` when you install `aspect` in a later ' +
       'step — run `aspect setup bazelrc --home` yourself once it is available.'
     )
+    return false
+  }
+
+  // A token that would not exchange will not authenticate the cache either, and
+  // Bazel treats a credential helper that cannot produce a token as fatal — so
+  // an rc naming the cache would fail every `bazel` call rather than merely
+  // leave it uncached. Say so explicitly instead: the endpoints stay defined in
+  // the rc and come back the moment the token is fixed.
+  //
+  // No bare retry in that case. A CLI too old for `--remote` enables nothing on
+  // this path anyway, so there is nothing to fall back to and nothing at risk.
+  if (!authenticated) {
+    warning(
+      'The ASPECT_API_TOKEN exchange failed, so the generated rc will not enable ' +
+      'the remote cache or BES — pointing Bazel at a cache it cannot authenticate ' +
+      'to would fail the build rather than slow it down. Fix the token to restore ' +
+      'caching; `--config=aspect-cloud` in the rc still names the endpoints.'
+    )
+    await runBazelrcTask([[...config.rcFlags, '--remote=none']], 'Aspect (cache disabled)')
+    // Not configured, whether or not the rc was written: the caller uses this
+    // to decide whether the job has any cache at all.
     return false
   }
 
@@ -98669,11 +98695,11 @@ async function setupOnEphemeralRunner () {
 
   // Auth before the rc is generated: the token is what puts a single-tenant
   // deployment on record, and the rc gives each one its own `--config` section.
-  await loginIfApiToken()
+  const authenticated = await loginIfApiToken()
 
   let remoteCacheConfigured = false
   if (config.remoteCache) {
-    remoteCacheConfigured = await writeCloudBazelrc()
+    remoteCacheConfigured = await writeCloudBazelrc(authenticated)
   } else {
     info('remote-cache: false — skipping `aspect setup bazelrc --home`')
   }
@@ -98769,7 +98795,7 @@ async function index_restoreCache (cacheConfig) {
  * that don't need Aspect API access.
  */
 async function loginIfApiToken () {
-  if (!config.aspectApiToken) return
+  if (!config.aspectApiToken) return true
 
   startGroup('Exchange ASPECT_API_TOKEN for a session JWT')
   try {
@@ -98778,11 +98804,13 @@ async function loginIfApiToken () {
       input: Buffer.from(config.aspectApiToken),
     })
     info('Persisted Aspect session JWT for downstream `aspect` invocations')
+    return true
   } catch (err) {
     warning(
       `aspect auth login --with-api-token failed: ${err.message || err}. ` +
       'Downstream tasks that need Aspect API access will fail to authenticate.'
     )
+    return false
   } finally {
     endGroup()
   }
