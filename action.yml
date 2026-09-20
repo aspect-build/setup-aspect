@@ -89,10 +89,10 @@ inputs:
     required: false
     default: 'true'
 
-  remote-cache:
+  bazelrc-generate:
     description: |
-      Point `~/.bazelrc` at the Aspect deployment's remote cache and
-      BES, by running `aspect setup bazelrc`. On by default.
+      Whether to generate a Bazel rc at all, by running
+      `aspect setup bazelrc`. On by default.
 
       This is what makes a plain `bazel build //...` read and write a
       cache shared across jobs and branches, and stream the build to
@@ -105,9 +105,13 @@ inputs:
       `~/.bazelrc`, rather than into the checkout, so the repository is
       left clean.
 
-      Set to `false` if you configure Bazel's remote cache yourself, or
-      to keep setup-aspect from touching `~/.bazelrc`. With it off you
-      will usually want `disk-cache: true` so the job still caches
+      Set to `false` if you configure Bazel yourself, or to keep
+      setup-aspect from touching `~/.bazelrc`; the launcher and Bazelisk
+      installs and the login still happen, which is what makes this
+      different from dropping the action. `aspect <task>` steps are
+      unaffected either way, since a task configures its own Bazel
+      invocation. With it off you will usually want `disk-cache: true`
+      so the job still caches
       something.
 
       Ignored on Aspect Workflows runners, which generate their own rc
@@ -159,7 +163,7 @@ inputs:
   disk-cache:
     description: |
       Cache `--disk_cache` outputs across runs, through the GitHub
-      Actions cache. **Off by default** — the `remote-cache` above
+      Actions cache. **Off by default** — the generated rc above
       covers the same ground and is shared across jobs, branches, and
       developers, where this one is per-runner and capped by the GHA
       cache's 10 GB per-repository budget.
@@ -169,9 +173,9 @@ inputs:
       Actions workflow context's `github.workflow` value so each
       workflow gets its own cache. `false` keeps it off.
 
-      Turning it on alongside `remote-cache` is supported and gives
+      Turning it on alongside the remote cache is supported and gives
       Bazel a local tier in front of the remote one; it is the right
-      setting when `remote-cache` is off.
+      setting when `bazelrc-generate` is off.
 
       Ignored on Aspect Workflows runners — they route Bazel through
       a remote cache, making per-job disk caching unnecessary.
@@ -196,7 +200,7 @@ inputs:
       are supported. setup-aspect appends only lines not already
       present, so re-runs are idempotent.
 
-      Appended after `remote-cache` has generated the rc, so these
+      Appended after the rc has been generated, so these
       lines override the generated ones where they set the same flag.
 
       Ignored on Aspect Workflows runners (the runner provides

@@ -163,7 +163,11 @@ async function setupOnWorkflowsRunner () {
   // helper the rc names has to work for the first `bazel` call either way.
   await loginIfApiToken()
 
-  await writeBazelrc()
+  if (config.generateBazelrc) {
+    await writeBazelrc()
+  } else {
+    core.info('bazelrc-generate: false — leaving Bazel\'s configuration to this repository.')
+  }
 }
 
 /**
@@ -521,10 +525,10 @@ async function setupOnEphemeralRunner () {
   const authenticated = await loginIfApiToken()
 
   let remoteCacheConfigured = false
-  if (config.remoteCache) {
+  if (config.generateBazelrc) {
     remoteCacheConfigured = await writeCloudBazelrc(authenticated)
   } else {
-    core.info('remote-cache: false — skipping `aspect setup bazelrc`')
+    core.info('bazelrc-generate: false — leaving Bazel\'s configuration to this repository.')
   }
 
   // Last, so these lines sit below the `try-import` the rc task adds at the top
@@ -548,7 +552,7 @@ function warnIfUncached (remoteCacheConfigured) {
   core.warning(
     'This job has no Bazel cache: `~/.bazelrc` was not pointed at an Aspect ' +
     'remote cache, and `disk-cache` is disabled, so every build starts cold. ' +
-    'Leave `remote-cache` on to use the Aspect remote cache, or set ' +
+    'Leave `bazelrc-generate` on to use the Aspect remote cache, or set ' +
     '`disk-cache: true` for a GitHub Actions-backed disk cache instead.'
   )
 }
