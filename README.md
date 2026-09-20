@@ -2,7 +2,7 @@
 
 GitHub Action that installs the [Aspect CLI](https://docs.aspect.build/cli/overview) launcher, installs Bazelisk (skipped automatically if `bazel` is already on PATH), points Bazel at Aspect Cloud's remote cache and BES, and authenticates with the Aspect API — all in one step.
 
-The remote cache is free up to a transfer limit, and the web UI its BES stream powers is always free — see [aspect.build/docs](https://aspect.build/docs).
+Both the remote cache and the web UI that the BES stream powers are available on Aspect Cloud's Free Tier. See [aspect.build/docs](https://aspect.build/docs) for more info.
 
 ## Usage
 
