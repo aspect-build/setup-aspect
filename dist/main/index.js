@@ -98261,12 +98261,11 @@ const BAZELRC_SUBCOMMANDS = [['setup', 'bazelrc'], ['ci', 'bazelrc']]
 const USAGE_EXIT = 2
 
 /**
- * The aspect-cli release that ships `aspect setup bazelrc`, and where to get it.
- * Named in the upgrade hint shown when the CLI has the task under neither name:
- * that CLI has to be upgraded anyway, so point it at the current task rather
- * than at the older release whose only merit is the alias.
+ * The aspect-cli release the upgrade hints name, and where to get it. The
+ * oldest release this action asks for rather than the oldest that can run
+ * `aspect setup bazelrc`: it moves with the fixes a working setup depends on.
  */
-const ASPECT_SETUP_BAZELRC_MIN_VERSION = 'v2026.38.30'
+const ASPECT_SETUP_BAZELRC_MIN_VERSION = 'v2026.38.34'
 const ASPECT_CLI_RELEASES_URL = 'https://github.com/aspect-build/aspect-cli/releases'
 
 // Bazel flags whose values are gRPC/HTTP headers — they carry credentials
@@ -98435,7 +98434,7 @@ async function aspectSetupBazelrc () {
 
   warning(
     'This Aspect CLI cannot run `aspect setup bazelrc`; ' +
-    `it requires aspect-cli ${ASPECT_SETUP_BAZELRC_MIN_VERSION} or newer (${ASPECT_CLI_RELEASES_URL}). ` +
+    `upgrade to aspect-cli ${ASPECT_SETUP_BAZELRC_MIN_VERSION} or newer (${ASPECT_CLI_RELEASES_URL}). ` +
     'Trying the legacy generator instead.'
   )
   return false
@@ -98579,7 +98578,7 @@ async function writeBazelrc () {
     'Warming completed and `aspect <task>` steps are unaffected, ' +
     'but vanilla `bazel` calls will not pick up the runner\'s remote cache, ' +
     'repository cache, or disk cache and so will not function correctly. ' +
-    `Upgrade aspect-cli to ${ASPECT_SETUP_BAZELRC_MIN_VERSION} or newer for \`aspect setup bazelrc\` (${ASPECT_CLI_RELEASES_URL}).`
+    `Upgrade aspect-cli to ${ASPECT_SETUP_BAZELRC_MIN_VERSION} or newer (${ASPECT_CLI_RELEASES_URL}).`
   )
 }
 
