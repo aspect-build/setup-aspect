@@ -92,7 +92,7 @@ inputs:
   remote-cache:
     description: |
       Point `~/.bazelrc` at the Aspect deployment's remote cache and
-      BES, by running `aspect setup bazelrc --home`. On by default.
+      BES, by running `aspect setup bazelrc`. On by default.
 
       This is what makes a plain `bazel build //...` read and write a
       cache shared across jobs and branches, and stream the build to
