@@ -8,7 +8,8 @@
     "node": "24.x"
   },
   "scripts": {
-    "build": "ncc build index.js -s -o dist/main && ncc build post.js -s -o dist/post"
+    "build": "ncc build index.js -s -o dist/main && ncc build post.js -s -o dist/post",
+    "test": "node --test \"tests/*.test.mjs\""
   },
   "author": "Aspect Build",
   "license": "Apache-2.0",

@@ -33,7 +33,7 @@ import * as core from '@actions/core'
 import * as exec from '@actions/exec'
 import config from './config.js'
 import { installLauncher, installBazelisk, onPath } from './install.js'
-import { appendBazelrcOnce, composeCacheKey } from './util.js'
+import { appendBazelrcOnce, composeCacheKey, releaseVersion, versionAtLeast } from './util.js'
 
 async function run () {
   try {
@@ -82,12 +82,51 @@ const BAZELRC_SUBCOMMANDS = [['setup', 'bazelrc'], ['ci', 'bazelrc']]
 const USAGE_EXIT = 2
 
 /**
- * The aspect-cli release the upgrade hints name, and where to get it. The
- * oldest release this action asks for rather than the oldest that can run
- * `aspect setup bazelrc`: it moves with the fixes a working setup depends on.
+ * The oldest Aspect CLI this action supports, as `aspect version` reports it,
+ * and where to get a newer one. `checkCliVersion` warns below it, and the
+ * upgrade hints name it. It moves with the fixes a working setup depends on,
+ * which is why it is well past the release that first shipped the rc task.
  */
-const ASPECT_SETUP_BAZELRC_MIN_VERSION = 'v2026.38.34'
+const ASPECT_CLI_MIN_VERSION = '2026.38.34'
 const ASPECT_CLI_RELEASES_URL = 'https://github.com/aspect-build/aspect-cli/releases'
+
+/**
+ * The Aspect CLI's own version, or `null` when there is nothing to compare.
+ *
+ * `aspect version` reports the CLI. `aspect --version` reports the *launcher*,
+ * which is versioned separately and says nothing about the CLI a repository
+ * pins, so it is the wrong question to ask here.
+ */
+async function aspectCliVersion () {
+  try {
+    const result = await exec.getExecOutput('aspect', ['version'], {
+      ignoreReturnCode: true,
+      silent: true,
+    })
+    return result.exitCode === 0 ? releaseVersion(result.stdout) : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Warn when the CLI on this runner is older than this action supports.
+ *
+ * Advisory, like every other diagnostic here: an older CLI still runs, and what
+ * it gets wrong is not always visible in the job that runs it. Silent when the
+ * version cannot be read, so a dev build or a CLI that cannot start is not
+ * reported as out of date.
+ */
+async function checkCliVersion () {
+  const version = await aspectCliVersion()
+  if (!version || versionAtLeast(version, ASPECT_CLI_MIN_VERSION)) return
+  core.warning(
+    `Aspect CLI ${version} is older than v${ASPECT_CLI_MIN_VERSION}, ` +
+    'the minimum this action supports. ' +
+    `Upgrade to the latest release (${ASPECT_CLI_RELEASES_URL}); ` +
+    'a repository pins the CLI it uses in .aspect/version.axl.'
+  )
+}
 
 // Bazel flags whose values are gRPC/HTTP headers — they carry credentials
 // (bearer tokens, API keys) and the runner's `x-identity`, so their values are
@@ -156,6 +195,8 @@ async function setupOnWorkflowsRunner () {
   logWorkflowsRunnerMetadata()
 
   await waitForWarming()
+
+  await checkCliVersion()
 
   // Before ~/.aspect/bazelrc is written: it is built from the runner's environment
   // rather than from what is logged in, but auth is cheap and the credential
@@ -255,7 +296,7 @@ async function aspectSetupBazelrc () {
 
   core.warning(
     'This Aspect CLI cannot run `aspect setup bazelrc`; ' +
-    `upgrade to aspect-cli ${ASPECT_SETUP_BAZELRC_MIN_VERSION} or newer (${ASPECT_CLI_RELEASES_URL}). ` +
+    `upgrade to aspect-cli v${ASPECT_CLI_MIN_VERSION} or newer (${ASPECT_CLI_RELEASES_URL}). ` +
     'Trying the legacy generator instead.'
   )
   return false
@@ -399,7 +440,7 @@ async function writeBazelrc () {
     'Warming completed and `aspect <task>` steps are unaffected, ' +
     'but vanilla `bazel` calls will not pick up the runner\'s remote cache, ' +
     'repository cache, or disk cache and so will not function correctly. ' +
-    `Upgrade aspect-cli to ${ASPECT_SETUP_BAZELRC_MIN_VERSION} or newer (${ASPECT_CLI_RELEASES_URL}).`
+    `Upgrade aspect-cli to v${ASPECT_CLI_MIN_VERSION} or newer (${ASPECT_CLI_RELEASES_URL}).`
   )
 }
 
@@ -518,6 +559,8 @@ async function setupOnEphemeralRunner () {
       await restoreCache(cacheConfig)
     }
   }
+
+  await checkCliVersion()
 
   // Auth before the rc is generated: the rc task enables a deployment's
   // endpoints only where something here can authenticate them, and a failed
