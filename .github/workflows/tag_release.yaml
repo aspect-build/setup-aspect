@@ -5,7 +5,7 @@
 #
 # The release tag is `vYYYY.VV.N` — this week's weekly tag (bare `YYYY.VV`) plus
 # the commits since it (see release_version.sh), with a leading `v` to match the
-# Aspect CLI's release tags (e.g. v2026.38.24). Weekly tags stay bare so the
+# Aspect CLI's release tags (e.g. v2026.38.30). Weekly tags stay bare so the
 # describe-match in release_version.sh keeps working; only release tags get the
 # `v`. This composes with the weekly tags without collisions. The release notes
 # lead with a copy-paste `uses:` snippet

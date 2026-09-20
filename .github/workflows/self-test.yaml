@@ -30,12 +30,12 @@ jobs:
       - uses: actions/checkout@v6
       - uses: ./
         with:
-          launcher-version: 2026.38.24
+          launcher-version: 2026.38.30
       - name: assert version matches pin
         run: |
           set -euo pipefail
           got="$(aspect --version | awk '{print $NF}')"
-          want="2026.38.24"
+          want="2026.38.30"
           if [ "$got" != "$want" ]; then
             echo "::error::expected aspect --version to report $want, got $got"
             exit 1
@@ -71,6 +71,27 @@ jobs:
           set -euo pipefail
           grep -q 'disk_cache=' "$HOME/.bazelrc" \
             || { echo "::error::~/.bazelrc missing --disk_cache directive"; cat "$HOME/.bazelrc"; exit 1; }
+          grep -q 'repository_cache=' "$HOME/.bazelrc" \
+            || { echo "::error::~/.bazelrc missing --repository_cache directive"; cat "$HOME/.bazelrc"; exit 1; }
+
+  disk-cache-off-by-default:
+    name: disk cache off by default
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      # No cache inputs: exercises the defaults, where the Aspect remote cache
+      # replaces the GHA-backed disk cache.
+      - uses: ./
+      - name: assert no --disk_cache directive was added
+        run: |
+          set -euo pipefail
+          if [ -f "$HOME/.bazelrc" ] && grep -q 'disk_cache=' "$HOME/.bazelrc"; then
+            echo "::error::~/.bazelrc has a --disk_cache directive, but disk-cache defaults to false"
+            cat "$HOME/.bazelrc"
+            exit 1
+          fi
+          # The repository cache is still on by default, so the append step ran
+          # and this is a real assertion rather than a missing-file pass.
           grep -q 'repository_cache=' "$HOME/.bazelrc" \
             || { echo "::error::~/.bazelrc missing --repository_cache directive"; cat "$HOME/.bazelrc"; exit 1; }
 

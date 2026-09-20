@@ -91859,7 +91859,7 @@ var lib_exec = __nccwpck_require__(5236);
 
 /**
  * Read the pinned aspect-cli version from `.aspect/version.axl`
- * (format: `version("2026.38.24")`) so the cli cache can key on the exact
+ * (format: `version("2026.38.30")`) so the cli cache can key on the exact
  * version without a download. This is the same file the launcher itself
  * reads, independent of `launcher-version`. Returns '' when the file is
  * absent or unparseable.
@@ -91892,8 +91892,8 @@ const config_platform = external_os_.platform()
 // Aspect Workflows runners pre-install aspect + bazel and route Bazel through
 // their own remote cache. setup-aspect detects this and skips launcher
 // install, Bazelisk install, GHA cache wiring, and ~/.bazelrc updates — the
-// only substantive step in that mode is writing /etc/bazel.bazelrc via
-// `rosetta bazelrc`.
+// only substantive step in that mode is generating the runner's own rc, which
+// describes the runner's services rather than a deployment's.
 const onWorkflowsRunner = !!process.env.ASPECT_WORKFLOWS_RUNNER
 
 const bazelDiskCachePath = `${homeDir}/.cache/bazel-disk`
@@ -91928,6 +91928,25 @@ const diskCacheTag = getInput('disk-cache')
 const repositoryCacheTag = getInput('repository-cache')
 const diskCacheEnabled = taggedCacheEnabled(diskCacheTag)
 const repositoryCacheEnabled = taggedCacheEnabled(repositoryCacheTag)
+
+// Whether to run `aspect setup bazelrc` at all. On by default: the rc it
+// writes is what makes a plain `bazel build //...` share a cache between jobs,
+// and it replaces the disk cache that used to be the only cache here. Off, the
+// repository's own Bazel configuration is left alone — on a Workflows runner
+// too, where the rc would describe the runner's own services.
+const generateBazelrc = getBooleanInput('bazelrc-generate')
+
+// Pass-throughs for the rc task's own flags, empty unless the workflow sets
+// them. Empty is not the same as a default: leaving a flag off lets the CLI
+// apply its own `auto`, which already detects the runner and the CI host, and
+// keeps the command line free of flags an older CLI would reject.
+const rcFlags = [
+  ['--remote', getInput('bazelrc-remote')],
+  ['--home', getInput('bazelrc-home')],
+]
+  .filter(([, value]) => value !== '')
+  .map(([flag, value]) => `${flag}=${value}`)
+if (getBooleanInput('bazelrc-force')) rcFlags.push('--force')
 
 const bazelrcUpdatesEnabled =
   !onWorkflowsRunner &&
@@ -92003,6 +92022,8 @@ if (githubToken && !process.env.BAZELISK_GITHUB_TOKEN) {
   aspectApiToken,
   bazeliskVersion,
   userBazelrcLines,
+  generateBazelrc,
+  rcFlags,
 
   paths: {
     bazelDiskCache: bazelDiskCachePath,
@@ -97842,7 +97863,7 @@ function _unique(values) {
 /**
  * Install the Aspect CLI launcher and put `aspect` on PATH.
  *
- * @param {string} version — pinned launcher version (e.g. "2026.38.24"),
+ * @param {string} version — pinned launcher version (e.g. "2026.38.30"),
  *                           or empty string for the latest release.
  */
 async function installLauncher (version) {
@@ -98161,10 +98182,23 @@ function appendBazelrcOnce (bazelrcPath, directives) {
 
 /**
  * setup-aspect main entry: install the Aspect CLI launcher, install
- * Bazelisk (unless `bazel` is already on PATH), configure Bazel for CI
- * caching, and authenticate with the Aspect API via the JWT-persist
- * flow. On Aspect Workflows runners the action takes a much narrower
- * path — see `setupOnWorkflowsRunner` below.
+ * Bazelisk (unless `bazel` is already on PATH), authenticate with the Aspect
+ * API via the JWT-persist flow, and point Bazel at a cache. On Aspect
+ * Workflows runners the action takes a much narrower path — see
+ * `setupOnWorkflowsRunner` below.
+ *
+ * On an ephemeral runner that cache is the Aspect deployment's:
+ * `aspect setup bazelrc` writes `~/.aspect/bazelrc` with its remote cache and
+ * BES endpoints and `try-import`s it from `~/.bazelrc`, so a plain
+ * `bazel build //...` reads and writes the shared cache and streams the build
+ * to Aspect with nothing else configured. The
+ * GHA-backed `--disk_cache`, which used to be the only cache here, is off by
+ * default now that the remote cache covers the same ground; `disk-cache: true`
+ * brings it back for repos that want both.
+ *
+ * Ordering inside `setupOnEphemeralRunner` matters — auth has to precede the rc
+ * task, and the `bazelrc` input's lines have to land below its `try-import` — and
+ * is documented at each call site.
  *
  * post.js handles the post-job cache save.
  */
@@ -98202,14 +98236,13 @@ async function setupAspect () {
   exportVariable('ASPECT_LAUNCHER_CACHE', config.paths.aspectLauncherCache)
   exportVariable('ASPECT_CLI_CACHE', config.paths.aspectCliCache)
 
+  // Both modes authenticate and generate an rc; they differ in what the rc
+  // describes and in what has to be installed first, so each owns its ordering.
   if (config.onWorkflowsRunner) {
     await setupOnWorkflowsRunner()
   } else {
     await setupOnEphemeralRunner()
   }
-
-  // Auth runs in both modes — same JWT-persist benefit either way.
-  await loginIfApiToken()
 }
 
 // ─── Workflows-runner branch ─────────────────────────────────────────────────
@@ -98221,12 +98254,19 @@ async function setupAspect () {
 const BAZELRC_SUBCOMMANDS = [['setup', 'bazelrc'], ['ci', 'bazelrc']]
 
 /**
+ * The exit code the CLI's argument parser uses for a command line it cannot
+ * parse — an unrecognized command, or a flag this version does not have. A task
+ * that ran and refused exits 1, so the two are told apart.
+ */
+const USAGE_EXIT = 2
+
+/**
  * The aspect-cli release that ships `aspect setup bazelrc`, and where to get it.
  * Named in the upgrade hint shown when the CLI has the task under neither name:
  * that CLI has to be upgraded anyway, so point it at the current task rather
  * than at the older release whose only merit is the alias.
  */
-const ASPECT_SETUP_BAZELRC_MIN_VERSION = 'v2026.38.10'
+const ASPECT_SETUP_BAZELRC_MIN_VERSION = 'v2026.38.30'
 const ASPECT_CLI_RELEASES_URL = 'https://github.com/aspect-build/aspect-cli/releases'
 
 // Bazel flags whose values are gRPC/HTTP headers — they carry credentials
@@ -98248,7 +98288,7 @@ const HEADER_FLAG_RE = new RegExp(
  * Redact header-flag values in a rendered rc so the echoed copy doesn't leak
  * credentials or the runner identity. `--remote_header=x-identity=<uuid>`
  * becomes `--remote_header=x-identity=<REDACTED>`; the flag and header name
- * stay visible so the rc is still legible.
+ * stay visible so the echoed rc is still legible.
  */
 function redactBazelrc (text) {
   return text
@@ -98277,8 +98317,8 @@ function printBazelrc (rcPath) {
  * (which `aspect <task>` does on its own before running), and generate a
  * Bazel rc so vanilla `bazel` picks up the same configuration.
  *
- * The rc is generated by `aspect setup bazelrc` (writes `~/.bazelrc`), with a
- * legacy fallback for runners whose CLI predates the task. If neither path
+ * The rc is generated by `aspect setup bazelrc`, with a legacy fallback for
+ * runners whose CLI predates the task. If neither path
  * works, it warns (vanilla `bazel` calls won't be configured) but does NOT fail
  * the action — warming is done and `aspect <task>` steps are unaffected.
  *
@@ -98297,38 +98337,73 @@ async function setupOnWorkflowsRunner () {
 
   await waitForWarming()
 
-  await writeBazelrc()
+  // Before ~/.aspect/bazelrc is written: it is built from the runner's environment
+  // rather than from what is logged in, but auth is cheap and the credential
+  // helper the rc names has to work for the first `bazel` call either way.
+  await loginIfApiToken()
+
+  if (config.generateBazelrc) {
+    await writeBazelrc()
+  } else {
+    info('bazelrc-generate: false — leaving Bazel\'s configuration to this repository.')
+  }
 }
 
 /**
- * Preferred generator: `aspect setup bazelrc` → `~/.bazelrc`.
+ * Every way to ask this CLI for the rc, best first: each set of flags in
+ * `flagSets`, under each name in `BAZELRC_SUBCOMMANDS`.
  *
- * Writes the runner's remote cache, repository cache, and output flags — the
- * same flags `aspect <task>` injects. It reads the runner's environment, not a
- * Workflows config, so no throwaway config or `.bazelversion` plumbing is
- * needed.
- *
- * Tries each name in `BAZELRC_SUBCOMMANDS` in turn: a non-zero exit means this
- * CLI does not know that name, not that generating the rc failed. Returns true
- * on the first success; false when `aspect` is missing or no name is recognized.
+ * Flags are tried outermost so a configured run is preferred over a bare one.
+ * The set a caller puts last is its fallback for a CLI too old for the rest —
+ * `[]`, a bare run, which is also the whole ladder when nothing is configured.
  */
-async function aspectSetupBazelrc () {
-  if (!(await onPath('aspect'))) return false
-  const userBazelrc = external_path_.join(external_os_.homedir(), '.bazelrc')
+function bazelrcAttempts (flagSets) {
+  // An unconfigured caller passes the same empty set twice — its flags, then
+  // its fallback — and there is no point running the same command line again.
+  const distinct = [...new Set(flagSets.map((flags) => flags.join('\u0000')))]
+    .map((key) => (key === '' ? [] : key.split('\u0000')))
+  return distinct.flatMap((flags) => BAZELRC_SUBCOMMANDS.map((argv) => [...argv, ...flags]))
+}
 
-  for (const argv of BAZELRC_SUBCOMMANDS) {
-    const name = `aspect ${argv.join(' ')}`
-    startGroup(`Generate ${userBazelrc} via \`${name}\``)
+/**
+ * Run the rc-generating task and report whether it wrote the rc.
+ *
+ * Walks `bazelrcAttempts` until one succeeds. A non-zero exit moves on to the
+ * next form rather than failing: the CLI may not know the name, or may not know
+ * the flags. Exit 2 is the argument parser's — an unrecognized command or flag —
+ * so a run that exited otherwise is remembered as a real failure and reported as
+ * one, rather than as an out-of-date CLI.
+ *
+ * Callers check `aspect` is on PATH first, so that a missing binary and an
+ * out-of-date one get different advice.
+ */
+async function runBazelrcTask (flagSets, description) {
+  // `~/.bazelrc` try-imports the rc that holds the flags; both are echoed, and
+  // a CLI old enough to write the whole rc into `~/.bazelrc` leaves only that.
+  const userBazelrc = external_path_.join(external_os_.homedir(), '.bazelrc')
+  const generatedRc = external_path_.join(external_os_.homedir(), '.aspect', 'bazelrc')
+  let ranAndFailed = 0
+
+  for (const full of bazelrcAttempts(flagSets)) {
+    const name = `aspect ${full.join(' ')}`
+    startGroup(`Generate ${generatedRc} via \`${name}\``)
     try {
-      const code = await lib_exec.exec('aspect', argv, { ignoreReturnCode: true })
+      const code = await lib_exec.exec('aspect', full, { ignoreReturnCode: true })
       if (code === 0) {
-        info(`Wrote Workflows-tuned bazelrc to ${userBazelrc}`)
+        const written = external_fs_.existsSync(generatedRc) ? generatedRc : userBazelrc
+        info(`Wrote ${description} bazelrc to ${written}`)
         printBazelrc(userBazelrc)
+        printBazelrc(generatedRc)
         return true
       }
-      info(`\`${name}\` is unavailable in this Aspect CLI (exit ${code}).`)
+      if (code === USAGE_EXIT) {
+        info(`\`${name}\` is unavailable in this Aspect CLI (exit ${code}); trying the next form.`)
+      } else {
+        ranAndFailed = code
+        info(`\`${name}\` failed (exit ${code}); trying the next form.`)
+      }
     } catch {
-      // `aspect` is on PATH but could not be spawned; the next name will not
+      // `aspect` is on PATH but could not be spawned; the next form will not
       // fare better, so stop here and let the caller fall back.
       return false
     } finally {
@@ -98336,10 +98411,103 @@ async function aspectSetupBazelrc () {
     }
   }
 
+  if (ranAndFailed) {
+    warning(
+      `\`aspect setup bazelrc\` ran but failed (exit ${ranAndFailed}), so vanilla \`bazel\` ` +
+      'calls are not configured. The message above says why.'
+    )
+  }
+  return false
+}
+
+/**
+ * Preferred generator on a Workflows runner: `aspect setup bazelrc`, which
+ * writes `~/.aspect/bazelrc` and try-imports it from `~/.bazelrc`.
+ *
+ * The rc holds the runner's remote cache, repository cache, and output flags —
+ * the same flags `aspect <task>` injects. It reads the runner's environment,
+ * not a Workflows config, so no throwaway config or `.bazelversion` plumbing is
+ * needed.
+ */
+async function aspectSetupBazelrc () {
+  if (!(await onPath('aspect'))) return false
+  if (await runBazelrcTask([config.rcFlags, []], 'Workflows-tuned')) return true
+
   warning(
     'This Aspect CLI cannot run `aspect setup bazelrc`; ' +
     `it requires aspect-cli ${ASPECT_SETUP_BAZELRC_MIN_VERSION} or newer (${ASPECT_CLI_RELEASES_URL}). ` +
     'Trying the legacy generator instead.'
+  )
+  return false
+}
+
+/**
+ * Ephemeral-runner generator: `aspect setup bazelrc`, whose rc holds the Aspect
+ * deployment's remote cache and BES endpoints. That is what makes a plain
+ * `bazel build //...` share a cache across jobs and stream its build to Aspect
+ * without the workflow configuring anything else.
+ *
+ * No flags by default. The CLI picks the home layout on CI itself, so there is
+ * nothing for the action to assert: `~/.aspect/bazelrc` with a `try-import` in
+ * `~/.bazelrc`, rather than the `<workspace>/.aspect/bazelrc` pair meant to be
+ * committed. The `home` input overrides that when a workflow wants the other.
+ *
+ * The task defaults to the Aspect Cloud deployment and needs no login to write
+ * the rc; `aspect-api-token` is still what lets Bazel authenticate to the cache
+ * the rc names, and what the task looks for before enabling those endpoints at
+ * all.
+ *
+ * `authenticated` is whether the ASPECT_API_TOKEN exchange worked; false means
+ * the rc is written with the cache and BES disabled rather than not at all.
+ *
+ * Returns whether the job ends up with the remote cache configured — false when
+ * the rc could not be written and when it was written with caching off, since
+ * the caller uses this to decide whether any cache is in play. A failure is
+ * warned, not fatal: the job still builds, just uncached.
+ */
+async function writeCloudBazelrc (authenticated) {
+  if (!(await onPath('aspect'))) {
+    warning(
+      '`aspect` is not on PATH, so `aspect setup bazelrc` could not run ' +
+      'and `bazel` will not reach the Aspect remote cache. This is expected ' +
+      'with `launcher-install: false` when you install `aspect` in a later ' +
+      'step — run `aspect setup bazelrc` yourself once it is available.'
+    )
+    return false
+  }
+
+  // A token that would not exchange will not authenticate the cache either, and
+  // Bazel treats a credential helper that cannot produce a token as fatal — so
+  // an rc naming the cache would fail every `bazel` call rather than merely
+  // leave it uncached. Say so explicitly instead: the endpoints stay defined in
+  // the rc and come back the moment the token is fixed.
+  //
+  // No bare retry in that case. A CLI too old for `--remote` enables nothing on
+  // this path anyway, so there is nothing to fall back to and nothing at risk.
+  if (!authenticated) {
+    warning(
+      'The ASPECT_API_TOKEN exchange failed, so the generated rc will not enable ' +
+      'the remote cache or BES — pointing Bazel at a cache it cannot authenticate ' +
+      'to would fail the build rather than slow it down. Fix the token to restore ' +
+      'caching; `--config=aspect-cloud` in the rc still names the endpoints.'
+    )
+    await runBazelrcTask([[...config.rcFlags, '--remote=none']], 'Aspect (cache disabled)')
+    // Not configured, whether or not the rc was written: the caller uses this
+    // to decide whether the job has any cache at all.
+    return false
+  }
+
+  // Whatever the workflow configured, then nothing. Unconfigured means an
+  // unadorned `aspect setup bazelrc`, which is the point: the CLI detects CI
+  // and picks the home rc itself, so the action has no opinion to add. The bare
+  // retry is for a CLI too old to know a flag that was configured — better it
+  // writes the rc it can than none at all.
+  if (await runBazelrcTask([config.rcFlags, []], 'Aspect remote cache')) return true
+
+  warning(
+    'This Aspect CLI cannot run `aspect setup bazelrc`, so `bazel` will ' +
+    `not reach the Aspect remote cache (${ASPECT_CLI_RELEASES_URL}). ` +
+    'Upgrade the CLI, or set `disk-cache: true` to cache through GitHub Actions instead.'
   )
   return false
 }
@@ -98519,12 +98687,8 @@ async function setupOnEphemeralRunner () {
   }
   await installBazelisk(config.bazeliskVersion)
 
-  if (config.bazelrcUpdatesEnabled) {
-    setupBazelrc()
-  }
-
-  // Restore before `loginIfApiToken` runs `aspect auth login` so the cli isn't
-  // re-downloaded on warm runs; `config.caches` is ordered cli-caches-first.
+  // Restore before the first `aspect` call so the cli isn't re-downloaded on
+  // warm runs; `config.caches` is ordered cli-caches-first.
   const enabled = config.caches.filter(c => c.enabled)
   if (enabled.length > 0) {
     // Jitter once before the first cache-service call to soften thundering-herd
@@ -98534,6 +98698,43 @@ async function setupOnEphemeralRunner () {
       await index_restoreCache(cacheConfig)
     }
   }
+
+  // Auth before the rc is generated: the rc task enables a deployment's
+  // endpoints only where something here can authenticate them, and a failed
+  // exchange is what tells `writeCloudBazelrc` to write them disabled.
+  const authenticated = await loginIfApiToken()
+
+  let remoteCacheConfigured = false
+  if (config.generateBazelrc) {
+    remoteCacheConfigured = await writeCloudBazelrc(authenticated)
+  } else {
+    info('bazelrc-generate: false — leaving Bazel\'s configuration to this repository.')
+  }
+
+  // Last, so these lines sit below the `try-import` the rc task adds at the top
+  // of `~/.bazelrc`. Bazel takes the last value of a flag, so that is what lets
+  // them override the generated rc.
+  if (config.bazelrcUpdatesEnabled) {
+    setupBazelrc()
+  }
+
+  warnIfUncached(remoteCacheConfigured)
+}
+
+/**
+ * Warn when the job ends up with no Bazel cache at all. `disk-cache` is off by
+ * default now that the remote cache replaces it, so a job whose remote cache
+ * also failed to configure would quietly rebuild everything every run — slower
+ * CI with nothing in the log to explain it.
+ */
+function warnIfUncached (remoteCacheConfigured) {
+  if (remoteCacheConfigured || config.diskCache.enabled) return
+  warning(
+    'This job has no Bazel cache: `~/.bazelrc` was not pointed at an Aspect ' +
+    'remote cache, and `disk-cache` is disabled, so every build starts cold. ' +
+    'Leave `bazelrc-generate` on to use the Aspect remote cache, or set ' +
+    '`disk-cache: true` for a GitHub Actions-backed disk cache instead.'
+  )
 }
 
 function setupBazelrc () {
@@ -98601,7 +98802,7 @@ async function index_restoreCache (cacheConfig) {
  * that don't need Aspect API access.
  */
 async function loginIfApiToken () {
-  if (!config.aspectApiToken) return
+  if (!config.aspectApiToken) return true
 
   startGroup('Exchange ASPECT_API_TOKEN for a session JWT')
   try {
@@ -98610,11 +98811,13 @@ async function loginIfApiToken () {
       input: Buffer.from(config.aspectApiToken),
     })
     info('Persisted Aspect session JWT for downstream `aspect` invocations')
+    return true
   } catch (err) {
     warning(
       `aspect auth login --with-api-token failed: ${err.message || err}. ` +
       'Downstream tasks that need Aspect API access will fail to authenticate.'
     )
+    return false
   } finally {
     endGroup()
   }

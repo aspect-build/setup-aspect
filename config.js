@@ -16,7 +16,7 @@ import * as core from '@actions/core'
 
 /**
  * Read the pinned aspect-cli version from `.aspect/version.axl`
- * (format: `version("2026.38.24")`) so the cli cache can key on the exact
+ * (format: `version("2026.38.30")`) so the cli cache can key on the exact
  * version without a download. This is the same file the launcher itself
  * reads, independent of `launcher-version`. Returns '' when the file is
  * absent or unparseable.
@@ -49,8 +49,8 @@ const platform = os.platform()
 // Aspect Workflows runners pre-install aspect + bazel and route Bazel through
 // their own remote cache. setup-aspect detects this and skips launcher
 // install, Bazelisk install, GHA cache wiring, and ~/.bazelrc updates — the
-// only substantive step in that mode is writing /etc/bazel.bazelrc via
-// `rosetta bazelrc`.
+// only substantive step in that mode is generating the runner's own rc, which
+// describes the runner's services rather than a deployment's.
 const onWorkflowsRunner = !!process.env.ASPECT_WORKFLOWS_RUNNER
 
 const bazelDiskCachePath = `${homeDir}/.cache/bazel-disk`
@@ -85,6 +85,25 @@ const diskCacheTag = core.getInput('disk-cache')
 const repositoryCacheTag = core.getInput('repository-cache')
 const diskCacheEnabled = taggedCacheEnabled(diskCacheTag)
 const repositoryCacheEnabled = taggedCacheEnabled(repositoryCacheTag)
+
+// Whether to run `aspect setup bazelrc` at all. On by default: the rc it
+// writes is what makes a plain `bazel build //...` share a cache between jobs,
+// and it replaces the disk cache that used to be the only cache here. Off, the
+// repository's own Bazel configuration is left alone — on a Workflows runner
+// too, where the rc would describe the runner's own services.
+const generateBazelrc = core.getBooleanInput('bazelrc-generate')
+
+// Pass-throughs for the rc task's own flags, empty unless the workflow sets
+// them. Empty is not the same as a default: leaving a flag off lets the CLI
+// apply its own `auto`, which already detects the runner and the CI host, and
+// keeps the command line free of flags an older CLI would reject.
+const rcFlags = [
+  ['--remote', core.getInput('bazelrc-remote')],
+  ['--home', core.getInput('bazelrc-home')],
+]
+  .filter(([, value]) => value !== '')
+  .map(([flag, value]) => `${flag}=${value}`)
+if (core.getBooleanInput('bazelrc-force')) rcFlags.push('--force')
 
 const bazelrcUpdatesEnabled =
   !onWorkflowsRunner &&
@@ -160,6 +179,8 @@ export default {
   aspectApiToken,
   bazeliskVersion,
   userBazelrcLines,
+  generateBazelrc,
+  rcFlags,
 
   paths: {
     bazelDiskCache: bazelDiskCachePath,

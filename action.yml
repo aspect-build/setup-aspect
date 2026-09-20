@@ -9,7 +9,7 @@ branding:
 inputs:
   launcher-version:
     description: |
-      Aspect CLI launcher version to install (e.g. `2026.38.24`). Omit
+      Aspect CLI launcher version to install (e.g. `2026.38.30`). Omit
       to install the latest released launcher.
 
       The CLI version itself is pinned by `.aspect/version.axl` in
@@ -89,18 +89,100 @@ inputs:
     required: false
     default: 'true'
 
+  bazelrc-generate:
+    description: |
+      Whether to write `~/.aspect/bazelrc`, and the `try-import` for it
+      in `~/.bazelrc`, by running `aspect setup bazelrc`. On by default.
+
+      This is what makes a plain `bazel build //...` read and write a
+      cache shared across jobs and branches, and stream the build to
+      Aspect, without the workflow configuring anything else. The
+      deployment defaults to Aspect Cloud; set `aspect-api-token` so
+      Bazel can authenticate to it, which is also what the task looks
+      for before enabling those endpoints at all.
+
+      The rc is written to `~/.aspect/bazelrc` and `try-import`ed from
+      `~/.bazelrc`, rather than into the checkout, so the repository is
+      left clean.
+
+      Set to `false` if you configure Bazel yourself, or to keep
+      setup-aspect from touching `~/.bazelrc`; the launcher and Bazelisk
+      installs and the login still happen, which is what makes this
+      different from dropping the action. `aspect <task>` steps are
+      unaffected either way, since a task configures its own Bazel
+      invocation. With it off you will usually want `disk-cache: true`
+      so the job still caches
+      something.
+
+      On an Aspect Workflows runner the same two files hold that
+      runner's own services rather than a deployment's, and `false`
+      skips them there too — `aspect <task>` still reaches those
+      services, a vanilla `bazel` call no longer would.
+    required: false
+    default: 'true'
+
+  bazelrc-remote:
+    description: |
+      Which of the deployment's remote endpoints the generated rc turns
+      on, passed to `aspect setup bazelrc` as `--remote=<value>`. Unset
+      by default, which leaves the CLI's own `auto`: the remote cache
+      and BES on CI, and nothing off it.
+
+      Same grammar as `aspect build --remote`. `exec` adds remote
+      execution, which is never automatic. `no-cache` / `no-bes` /
+      `no-exec` subtract, so `no-bes` is the cache alone. `none` enables
+      nothing. `auto` is the default spelled out.
+    required: false
+    default: ''
+
+  bazelrc-home:
+    description: |
+      Which rc `aspect setup bazelrc` writes, passed as `--home=<value>`.
+      Unset by default, which leaves the CLI's own `auto`: the machine's
+      rc under `~/.aspect` on CI, and the checkout's off it.
+
+      `false` writes the checkout's `<workspace>/.aspect/bazelrc` and a
+      `try-import` into the repository's `.bazelrc` instead — files meant
+      to be committed, so this is for a job whose purpose is regenerating
+      them. `true` forces the machine's rc.
+    required: false
+    default: ''
+
+  bazelrc-force:
+    description: |
+      Regenerate the rc even if one is already there, passing `--force`.
+      Off by default, because the CLI keeps an existing rc: the
+      checkout's is the repository's to edit, and the machine's may
+      belong to a runner someone set up by hand.
+
+      Worth turning on for a persistent self-hosted runner, whose home
+      directory survives between jobs and would otherwise keep the rc
+      written by the first job on it. An ephemeral runner starts clean,
+      so this changes nothing there.
+    required: false
+    default: 'false'
+
   disk-cache:
     description: |
-      Cache `--disk_cache` outputs across runs. On by default. Set to
-      a string to segregate the cache by that key — a typical pattern
-      is to key on the GitHub Actions workflow context's
-      `github.workflow` value so each workflow gets its own cache.
-      Set to `false` to disable the disk cache entirely.
+      Cache `--disk_cache` outputs across runs, through the GitHub
+      Actions cache. **Off by default** — the generated rc above
+      covers the same ground and is shared across jobs, branches, and
+      developers, where this one is per-runner and capped by the GHA
+      cache's 10 GB per-repository budget.
+
+      Set to `true` to re-enable it, or to a string to segregate the
+      cache by that key — a typical pattern is to key on the GitHub
+      Actions workflow context's `github.workflow` value so each
+      workflow gets its own cache. `false` keeps it off.
+
+      Turning it on alongside the remote cache is supported and gives
+      Bazel a local tier in front of the remote one; it is the right
+      setting when `bazelrc-generate` is off.
 
       Ignored on Aspect Workflows runners — they route Bazel through
       a remote cache, making per-job disk caching unnecessary.
     required: false
-    default: 'true'
+    default: 'false'
 
   repository-cache:
     description: |
@@ -119,6 +201,9 @@ inputs:
       Extra lines appended to `~/.bazelrc`. Multiline YAML strings
       are supported. setup-aspect appends only lines not already
       present, so re-runs are idempotent.
+
+      Appended after the rc has been generated, so these
+      lines override the generated ones where they set the same flag.
 
       Ignored on Aspect Workflows runners (the runner provides
       its own Bazel configuration).
