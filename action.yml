@@ -115,7 +115,7 @@ inputs:
     required: false
     default: 'true'
 
-  remote:
+  bazelrc-remote:
     description: |
       Which of the deployment's remote endpoints the generated rc turns
       on, passed to `aspect setup bazelrc` as `--remote=<value>`. Unset
@@ -129,7 +129,7 @@ inputs:
     required: false
     default: ''
 
-  home:
+  bazelrc-home:
     description: |
       Which rc `aspect setup bazelrc` writes, passed as `--home=<value>`.
       Unset by default, which leaves the CLI's own `auto`: the machine's
@@ -142,7 +142,7 @@ inputs:
     required: false
     default: ''
 
-  force:
+  bazelrc-force:
     description: |
       Regenerate the rc even if one is already there, passing `--force`.
       Off by default, because the CLI keeps an existing rc: the

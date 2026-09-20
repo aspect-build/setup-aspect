@@ -98,12 +98,12 @@ const remoteCache = !onWorkflowsRunner && core.getBooleanInput('remote-cache')
 // apply its own `auto`, which already detects the runner and the CI host, and
 // keeps the command line free of flags an older CLI would reject.
 const rcFlags = [
-  ['--remote', core.getInput('remote')],
-  ['--home', core.getInput('home')],
+  ['--remote', core.getInput('bazelrc-remote')],
+  ['--home', core.getInput('bazelrc-home')],
 ]
   .filter(([, value]) => value !== '')
   .map(([flag, value]) => `${flag}=${value}`)
-if (core.getBooleanInput('force')) rcFlags.push('--force')
+if (core.getBooleanInput('bazelrc-force')) rcFlags.push('--force')
 
 const bazelrcUpdatesEnabled =
   !onWorkflowsRunner &&
