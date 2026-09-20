@@ -87,7 +87,7 @@ const USAGE_EXIT = 2
  * that CLI has to be upgraded anyway, so point it at the current task rather
  * than at the older release whose only merit is the alias.
  */
-const ASPECT_SETUP_BAZELRC_MIN_VERSION = 'v2026.38.10'
+const ASPECT_SETUP_BAZELRC_MIN_VERSION = 'v2026.38.26'
 const ASPECT_CLI_RELEASES_URL = 'https://github.com/aspect-build/aspect-cli/releases'
 
 // Bazel flags whose values are gRPC/HTTP headers — they carry credentials
