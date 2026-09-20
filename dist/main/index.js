@@ -98454,8 +98454,8 @@ async function aspectSetupBazelrc () {
  *
  * The task defaults to the Aspect Cloud deployment and needs no login to write
  * the rc; `aspect-api-token` is still what lets Bazel authenticate to the cache
- * the rc names, and a token for a single-tenant deployment also gives that
- * deployment its own `--config` section here.
+ * the rc names, and what the task looks for before enabling those endpoints at
+ * all.
  *
  * `authenticated` is whether the ASPECT_API_TOKEN exchange worked; false means
  * the rc is written with the cache and BES disabled rather than not at all.
@@ -98699,8 +98699,9 @@ async function setupOnEphemeralRunner () {
     }
   }
 
-  // Auth before the rc is generated: the token is what puts a single-tenant
-  // deployment on record, and the rc gives each one its own `--config` section.
+  // Auth before the rc is generated: the rc task enables a deployment's
+  // endpoints only where something here can authenticate them, and a failed
+  // exchange is what tells `writeCloudBazelrc` to write them disabled.
   const authenticated = await loginIfApiToken()
 
   let remoteCacheConfigured = false

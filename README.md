@@ -89,7 +89,7 @@ setup-aspect runs in one of two modes depending on the runner:
 5. **Point `~/.bazelrc` at the Aspect remote cache** by running `aspect setup bazelrc`, which on CI writes `~/.aspect/bazelrc` and adds a `try-import` for it at the top of `~/.bazelrc`, so vanilla `bazel` calls use the deployment's remote cache and BES. No flags are passed: the CLI detects CI and picks that layout over the `<workspace>/.aspect/bazelrc` pair meant to be committed. Set `bazelrc-generate: false` to skip, or `bazelrc-home` to override the layout.
 6. **Append `~/.bazelrc` directives** — `--repository_cache`, `--disk_cache` when enabled, and any extra lines from the `bazelrc` input. Idempotent, and appended below step 5's `try-import`, so these lines override the generated ones.
 
-Step 4 comes first deliberately: authenticating puts a single-tenant deployment on record so the generated rc includes it. Step 6's placement is about precedence rather than survival — the rc task only adds its `try-import` at the top of `~/.bazelrc` and leaves the rest alone, and Bazel takes the last value of a flag, so lines below that import win over the generated rc.
+Step 4 comes first deliberately: the rc task enables a deployment's endpoints only where something can authenticate them, so the credential has to be in hand before it runs. Step 6's placement is about precedence rather than survival — the rc task only adds its `try-import` at the top of `~/.bazelrc` and leaves the rest alone, and Bazel takes the last value of a flag, so lines below that import win over the generated rc.
 
 ### On an Aspect Workflows runner (`ASPECT_WORKFLOWS_RUNNER` env var set)
 

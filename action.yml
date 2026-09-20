@@ -98,8 +98,8 @@ inputs:
       cache shared across jobs and branches, and stream the build to
       Aspect, without the workflow configuring anything else. The
       deployment defaults to Aspect Cloud; set `aspect-api-token` so
-      Bazel can authenticate to it, and to give a single-tenant
-      deployment its own `--config` section in the generated rc.
+      Bazel can authenticate to it, which is also what the task looks
+      for before enabling those endpoints at all.
 
       The rc is written to `~/.aspect/bazelrc` and `try-import`ed from
       `~/.bazelrc`, rather than into the checkout, so the repository is
@@ -114,8 +114,9 @@ inputs:
       so the job still caches
       something.
 
-      Ignored on Aspect Workflows runners, which generate their own rc
-      pointing at the runner's services.
+      On an Aspect Workflows runner this skips that runner's own rc,
+      which points Bazel at the runner's services — `aspect <task>`
+      still reaches them, a vanilla `bazel` call no longer would.
     required: false
     default: 'true'
 
