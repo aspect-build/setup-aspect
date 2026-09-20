@@ -89506,7 +89506,7 @@ function saveCacheV2(paths_1, key_1, options_1) {
 
 /**
  * Read the pinned aspect-cli version from `.aspect/version.axl`
- * (format: `version("2026.38.28")`) so the cli cache can key on the exact
+ * (format: `version("2026.38.30")`) so the cli cache can key on the exact
  * version without a download. This is the same file the launcher itself
  * reads, independent of `launcher-version`. Returns '' when the file is
  * absent or unparseable.

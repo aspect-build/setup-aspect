@@ -91859,7 +91859,7 @@ var lib_exec = __nccwpck_require__(5236);
 
 /**
  * Read the pinned aspect-cli version from `.aspect/version.axl`
- * (format: `version("2026.38.28")`) so the cli cache can key on the exact
+ * (format: `version("2026.38.30")`) so the cli cache can key on the exact
  * version without a download. This is the same file the launcher itself
  * reads, independent of `launcher-version`. Returns '' when the file is
  * absent or unparseable.
@@ -97863,7 +97863,7 @@ function _unique(values) {
 /**
  * Install the Aspect CLI launcher and put `aspect` on PATH.
  *
- * @param {string} version — pinned launcher version (e.g. "2026.38.28"),
+ * @param {string} version — pinned launcher version (e.g. "2026.38.30"),
  *                           or empty string for the latest release.
  */
 async function installLauncher (version) {
@@ -98266,7 +98266,7 @@ const USAGE_EXIT = 2
  * that CLI has to be upgraded anyway, so point it at the current task rather
  * than at the older release whose only merit is the alias.
  */
-const ASPECT_SETUP_BAZELRC_MIN_VERSION = 'v2026.38.28'
+const ASPECT_SETUP_BAZELRC_MIN_VERSION = 'v2026.38.30'
 const ASPECT_CLI_RELEASES_URL = 'https://github.com/aspect-build/aspect-cli/releases'
 
 // Bazel flags whose values are gRPC/HTTP headers — they carry credentials

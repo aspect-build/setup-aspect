@@ -30,12 +30,12 @@ jobs:
       - uses: actions/checkout@v6
       - uses: ./
         with:
-          launcher-version: 2026.38.28
+          launcher-version: 2026.38.30
       - name: assert version matches pin
         run: |
           set -euo pipefail
           got="$(aspect --version | awk '{print $NF}')"
-          want="2026.38.28"
+          want="2026.38.30"
           if [ "$got" != "$want" ]; then
             echo "::error::expected aspect --version to report $want, got $got"
             exit 1
