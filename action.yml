@@ -9,7 +9,7 @@ branding:
 inputs:
   launcher-version:
     description: |
-      Aspect CLI launcher version to install (e.g. `2026.38.24`). Omit
+      Aspect CLI launcher version to install (e.g. `2026.38.28`). Omit
       to install the latest released launcher.
 
       The CLI version itself is pinned by `.aspect/version.axl` in

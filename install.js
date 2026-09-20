@@ -24,7 +24,7 @@ import * as tc from '@actions/tool-cache'
 /**
  * Install the Aspect CLI launcher and put `aspect` on PATH.
  *
- * @param {string} version — pinned launcher version (e.g. "2026.38.24"),
+ * @param {string} version — pinned launcher version (e.g. "2026.38.28"),
  *                           or empty string for the latest release.
  */
 export async function installLauncher (version) {
