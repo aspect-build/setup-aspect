@@ -13,12 +13,30 @@ Minimal — latest launcher, Bazelisk, and the Aspect remote cache:
 - uses: aspect-build/setup-aspect@<commit-sha>
   with:
     aspect-api-token: ${{ secrets.ASPECT_API_TOKEN }}
+- run: bazel build //...
 - run: bazel test //...
 ```
 
-That is the whole setup. setup-aspect runs `aspect setup bazelrc`, which writes `~/.aspect/bazelrc` with your Aspect deployment's remote cache and BES and `try-import`s it from `~/.bazelrc` — so a plain `bazel` call shares a cache with every other job and branch, and streams its build to Aspect. `aspect build //...` and `aspect test //...` reach the same deployment with no flag of their own — on CI a task wires the default deployment itself.
+That is the whole setup. setup-aspect runs `aspect setup bazelrc`, which writes `~/.aspect/bazelrc` with your Aspect deployment's remote cache and BES and `try-import`s it from `~/.bazelrc` — so a plain `bazel` call shares a cache with every other job and branch, and streams its build to Aspect.
 
 The rc goes to `~/.bazelrc`, never into the checkout, so the repository stays clean.
+
+Or run Aspect tasks — `aspect build`, `aspect test`, `aspect lint` and the rest
+— which run the same builds with Aspect's own reporting and reach the
+deployment on CI without a flag of their own:
+
+```yaml
+- uses: actions/checkout@v6
+- uses: aspect-build/setup-aspect@<commit-sha>
+  with:
+    aspect-api-token: ${{ secrets.ASPECT_API_TOKEN }}
+- run: aspect build //...
+- run: aspect test //...
+```
+
+A task configures its own Bazel invocation, so it needs neither the generated
+rc nor `--remote`; what it does need is `aspect` on `PATH`, which this action
+installs. See [Aspect CLI tasks](https://aspect.build/docs/cli/tasks).
 
 Full — pin versions, key the repository cache per workflow, and authenticate:
 
