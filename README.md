@@ -20,7 +20,7 @@ That is the whole setup. setup-aspect runs `aspect setup bazelrc`, which writes 
 
 The rc goes to `~/.bazelrc`, never into the checkout, so the repository stays clean.
 
-Full — pin versions, segregate caches per workflow, and authenticate:
+Full — pin versions, key the repository cache per workflow, and authenticate:
 
 ```yaml
 permissions:
@@ -36,12 +36,19 @@ jobs:
           launcher-version: 2026.38.24
           bazelisk-version: 1.x
           bazelisk-cache: true
-          disk-cache: ${{ github.workflow }}
           repository-cache: ${{ github.workflow }}
           aspect-api-token: ${{ secrets.ASPECT_API_TOKEN }}
-      - run: aspect build --remote //...
-      - run: aspect test --remote //...
+      - run: bazel build //...
+      - run: bazel test //...
 ```
+
+`repository-cache` holds the bytes Bazel downloads for external repositories,
+in the GitHub Actions cache rather than Aspect's. Keying it on
+`github.workflow` gives each workflow its own entry, which is worth doing where
+workflows pull genuinely different dependency sets and would otherwise churn
+one shared entry; a single `true` shares one across them all. The build outputs
+themselves need no input here — those go to the Aspect remote cache, shared
+across every job and branch.
 
 **Pin to a full-length commit SHA**, not a branch or tag — tags are mutable and can be repointed at malicious code, so SHA-pinning is the [GitHub-recommended](https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions#using-third-party-actions) way to use third-party actions. Annotate with the version in a trailing comment for readability, and let Dependabot or Renovate keep the SHA fresh:
 
