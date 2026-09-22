@@ -89785,6 +89785,38 @@ function appendBazelrcOnce (bazelrcPath, directives) {
   return toAppend
 }
 
+/** A release version: `YYYY.WW.N`, and nothing else. */
+const RELEASE_VERSION_RE = /^\d+\.\d+\.\d+$/
+
+/**
+ * The release version in `reported` — what `aspect version` printed — or `null`
+ * when it is not one.
+ *
+ * A build that is not a release says so in a form of its own
+ * (`0.0.0-dev (debug build)`), and comes back null so the caller leaves it
+ * alone rather than calling it old.
+ */
+function releaseVersion (reported) {
+  const trimmed = (reported ?? '').split('\n')[0].trim()
+  return RELEASE_VERSION_RE.test(trimmed) ? trimmed : null
+}
+
+/**
+ * Whether version `have` is at least `want`, compared as numbers component by
+ * component: 2026.38.34 is newer than 2026.38.9, which a string compare gets
+ * backwards.
+ */
+function versionAtLeast (have, want) {
+  const left = have.split('.').map(Number)
+  const right = want.split('.').map(Number)
+  for (let i = 0; i < 3; i++) {
+    const l = left[i] ?? 0
+    const r = right[i] ?? 0
+    if (l !== r) return l > r
+  }
+  return true
+}
+
 ;// CONCATENATED MODULE: ./post.js
 // Portions of this file are adapted from https://github.com/bazel-contrib/setup-bazel
 // Copyright (c) 2023 Alex Rodionov — MIT License (see THIRD_PARTY_NOTICES.md)
