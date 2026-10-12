@@ -572,6 +572,7 @@ async function setupOnEphemeralRunner () {
     remoteCacheConfigured = await writeCloudBazelrc(authenticated)
   } else {
     core.info('bazelrc-generate: false — leaving Bazel\'s configuration to this repository.')
+    noteCacheLeftToRepository()
   }
 
   // Last, so these lines sit below the `try-import` the rc task adds at the top
@@ -581,22 +582,37 @@ async function setupOnEphemeralRunner () {
     setupBazelrc()
   }
 
-  warnIfUncached(remoteCacheConfigured)
+  if (config.generateBazelrc) warnIfUncached(remoteCacheConfigured)
 }
 
 /**
- * Warn when the job ends up with no Bazel cache at all. `disk-cache` is off by
- * default now that the remote cache replaces it, so a job whose remote cache
- * also failed to configure would quietly rebuild everything every run — slower
- * CI with nothing in the log to explain it.
+ * Warn when rc generation ran and the job still ends up with no Bazel cache.
+ * `disk-cache` is off by default now that the remote cache replaces it, so a
+ * job whose remote cache also failed to configure would quietly rebuild
+ * everything every run — slower CI with nothing in the log to explain it.
  */
 function warnIfUncached (remoteCacheConfigured) {
   if (remoteCacheConfigured || config.diskCache.enabled) return
   core.warning(
     'This job has no Bazel cache: `~/.bazelrc` was not pointed at an Aspect ' +
     'remote cache, and `disk-cache` is disabled, so every build starts cold. ' +
-    'Leave `bazelrc-generate` on to use the Aspect remote cache, or set ' +
+    'The messages above say why the remote cache was not configured; set ' +
     '`disk-cache: true` for a GitHub Actions-backed disk cache instead.'
+  )
+}
+
+/**
+ * Under `bazelrc-generate: false` with no `disk-cache`, say in the log that
+ * this action set up no Bazel cache. Whether the job has one is unknowable
+ * here — the repository may pass cache flags on the command line or write its
+ * own rc in a later step — so this is a log line, not a warning annotation.
+ */
+function noteCacheLeftToRepository () {
+  if (config.diskCache.enabled) return
+  core.info(
+    'setup-aspect configured no Bazel cache for this job. Unless the ' +
+    'repository points `bazel` at one itself, every build starts cold; ' +
+    '`disk-cache: true` adds a GitHub Actions-backed disk cache.'
   )
 }
 
