@@ -74,7 +74,7 @@ across every job and branch.
 - uses: aspect-build/setup-aspect@<commit-sha> # v2026.38.0
 ```
 
-Find the SHA on the [Releases page](https://github.com/aspect-build/setup-aspect/releases) — each release's notes include a copy-paste snippet pinned to its SHA. (We also push lightweight `YYYY.VV` weekly tags for discoverability.) Either way, pin to the SHA rather than the tag, since tags are mutable.
+Find the SHA on the [Releases page](https://github.com/aspect-build/setup-aspect/releases) — each release's notes include a copy-paste snippet pinned to its SHA. (Each week's first release also pushes a lightweight `YYYY.VV` tag.) Either way, pin to the SHA rather than the tag, since tags are mutable.
 
 ## What it does
 
