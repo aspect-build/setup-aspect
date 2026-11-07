@@ -1,17 +1,17 @@
 # Tag a release and publish its GitHub Release notes — run manually from the
 # Actions tab when you want to cut a release (e.g. after landing a fix users are
-# waiting for). This is the deliberate, human-triggered counterpart to the
-# automatic weekly_tag.yaml; doing it in CI avoids error-prone local git state.
+# waiting for); doing it in CI avoids error-prone local git state.
 #
-# The release tag is `vYYYY.VV.N` — this week's weekly tag (bare `YYYY.VV`) plus
-# the commits since it (see release_version.sh), with a leading `v` to match the
-# Aspect CLI's release tags (e.g. v2026.38.30). Weekly tags stay bare so the
-# describe-match in release_version.sh keeps working; only release tags get the
-# `v`. This composes with the weekly tags without collisions. The release notes
-# lead with a copy-paste `uses:` snippet
-# pinned to the released SHA (release_notes.sh), with GitHub's auto-generated
-# changelog appended. We publish a Release here for richer notes, but the README
-# still steers consumers to pin to the SHA rather than the tag.
+# The first release of an ISO week first pushes that week's bare `YYYY.VV` tag at
+# HEAD. The release tag is then `vYYYY.VV.N` — the latest weekly tag plus the
+# commits since it (see release_version.sh), with a leading `v` to match the
+# Aspect CLI's release tags (e.g. v2026.38.30) — so a week's first release is
+# `vYYYY.VV.0`. Weekly tags stay bare so the describe-match in release_version.sh
+# keeps working; only release tags get the `v`. The release notes lead with a
+# copy-paste `uses:` snippet pinned to the released SHA (release_notes.sh), with
+# GitHub's auto-generated changelog appended. We publish a Release here for
+# richer notes, but the README still steers consumers to pin to the SHA rather
+# than the tag.
 name: Tag a Release
 on:
   workflow_dispatch:
@@ -24,6 +24,17 @@ jobs:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0 # need full tag history to derive YYYY.VV.N
+      - name: Push this week's tag
+        run: |
+          set -euo pipefail
+          # %G (ISO week-year), not %Y, so the year rolls over with the week.
+          week="$(date +%G.%-V)"
+          if git rev-parse -q --verify "refs/tags/${week}" >/dev/null; then
+            echo "Weekly tag ${week} already exists."
+          else
+            git tag "${week}" "${GITHUB_SHA}"
+            git push origin "refs/tags/${week}"
+          fi
       - id: version
         name: Compute release version
         run: |
